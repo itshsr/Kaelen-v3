@@ -26,7 +26,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: Upload APK
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: KAELEN-debug
           path: app/build/outputs/apk/debug/app-debug.apk
