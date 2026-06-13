@@ -1,0 +1,60 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer tech tracking ring with space-gapped ticks -->
+    <path
+        android:pathData="M 54,18 A 36,36 0 1,1 53.99,18"
+        android:strokeWidth="2"
+        android:strokeColor="#00C8FF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Secondary internal focus ring -->
+    <path
+        android:pathData="M 54,28 A 26,26 0 1,0 54.01,28"
+        android:strokeWidth="1"
+        android:strokeColor="#7B2FFF" />
+
+    <!-- Center cognitive core star (Diamond style) -->
+    <path
+        android:pathData="M 54,36 L 72,54 L 54,72 L 36,54 Z"
+        android:fillColor="#00C8FF"
+        android:strokeWidth="2"
+        android:strokeColor="#E8F4FF" />
+
+    <!-- Core pulse rings -->
+    <path
+        android:pathData="M 54,44 A 10,10 0 1,1 53.99,44"
+        android:strokeWidth="2"
+        android:strokeColor="#050C1A" />
+
+    <!-- Inner iris glowing element -->
+    <path
+        android:pathData="M 54,49 A 5,5 0 1,1 53.99,49"
+        android:fillColor="#E8F4FF" />
+
+    <!-- Grid crosshair tech brackets -->
+    <path
+        android:pathData="M 12,54 L 28,54"
+        android:strokeWidth="2"
+        android:strokeColor="#00C8FF"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 80,54 L 96,54"
+        android:strokeWidth="2"
+        android:strokeColor="#00C8FF"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 54,12 L 54,24"
+        android:strokeWidth="2"
+        android:strokeColor="#00C8FF"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 54,84 L 54,96"
+        android:strokeWidth="2"
+        android:strokeColor="#00C8FF"
+        android:strokeLineCap="round" />
+</vector>

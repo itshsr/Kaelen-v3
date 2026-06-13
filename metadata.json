@@ -1,0 +1,6 @@
+{
+  "name": "KAELEN",
+  "description": "Your intelligent cosmic AI system representing your life dashboard, manual database logs, and workspace task schedules in real-time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
