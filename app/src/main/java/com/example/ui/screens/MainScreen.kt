@@ -2837,18 +2837,18 @@ fun ProfileScreen(viewModel: KaelenViewModel) {
                     modifier = Modifier.fillMaxWidth().testTag("custom_api_key_input")
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 
-                val isCustomKeyActive = customApiKeyVal.trim().isNotEmpty()
-                val activeStatusText = if (isCustomKeyActive) "Active Override: Using custom in-app Gemini API Key" else "Active Connection: Using system default envoy key"
-                val activeStatusColor = if (isCustomKeyActive) ElectricCyan else TextMuted
+                val isSavedKeyActive = currentProfile.customGeminiApiKey.trim().isNotEmpty()
+                val activeStatusText = if (isSavedKeyActive) "Active Override: Using custom in-app Gemini API Key" else "Using system default envoy key"
+                val activeStatusColor = if (isSavedKeyActive) ElectricCyan else TextMuted
                 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
-                        imageVector = if (isCustomKeyActive) Icons.Default.CloudQueue else Icons.Default.CloudDone,
+                        imageVector = if (isSavedKeyActive) Icons.Default.CloudQueue else Icons.Default.CloudDone,
                         contentDescription = "Status",
                         tint = activeStatusColor,
                         modifier = Modifier.size(14.dp)
@@ -2858,6 +2858,41 @@ fun ProfileScreen(viewModel: KaelenViewModel) {
                         style = MaterialTheme.typography.bodySmall,
                         color = activeStatusColor
                     )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        val hour = briefingHourVal.toIntOrNull() ?: 8
+                        val minute = briefingMinuteVal.toIntOrNull() ?: 30
+                        
+                        if (hour !in 0..23 || minute !in 0..59) {
+                            Toast.makeText(context, "Invalid time parameters. Please insert hour between 0-23 and minute between 0-59.", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        val updated = UserProfile(
+                            id = 1,
+                            name = nameVal,
+                            role = roleVal,
+                            city = cityVal,
+                            currentProjects = focusProjVal,
+                            preferences = prefsVal,
+                            briefingHour = hour,
+                            briefingMinute = minute,
+                            briefingEnabled = briefingEnabled,
+                            customGeminiApiKey = customApiKeyVal,
+                            birthDate = birthDateVal,
+                            birthTime = birthTimeVal,
+                            birthPlace = birthPlaceVal
+                        )
+                        viewModel.requestAction(PendingAction.UpdateProfile(updated))
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                    modifier = Modifier.fillMaxWidth().testTag("api_key_save_button")
+                ) {
+                    Text("SYNCHRONIZE PROFILE VECTOR", color = OnPrimaryColor, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
