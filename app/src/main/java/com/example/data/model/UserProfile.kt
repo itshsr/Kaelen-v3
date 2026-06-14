@@ -21,5 +21,9 @@ data class UserProfile(
     val dailyTarotCard: String = "",
     val dailyTarotDate: String = "",
     val lastBriefingDate: String = "",
-    val selectedTheme: String = "INFERNO"
+    val selectedTheme: String = "INFERNO",
+    val monthlyGoal: Double = 50000.0,
+    val focusStreak: Int = 0,
+    val habitsJson: String = "",
+    val ebooksJson: String = ""
 )

@@ -58,8 +58,39 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(viewModel: KaelenViewModel) {
-    val currentTab by viewModel.currentTab.collectAsState()
+    val isReady by viewModel.isReady.collectAsState()
     val userProfile by viewModel.userProfile.collectAsState()
+    
+    if (!isReady || userProfile.id != 1) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0F0F15)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                CircularProgressIndicator(
+                    color = Color(0xFFFF6B00),
+                    strokeWidth = 3.dp,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "KAELEN COGNITIVE NUCLEUS BOOTING...",
+                    color = Color(0xFFFF6B00),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp
+                )
+            }
+        }
+        return
+    }
+
+    val currentTab by viewModel.currentTab.collectAsState()
     
     // Choose active style dynamically based on theme preset stored in UserProfile
     val themeVariant = when (userProfile.selectedTheme.uppercase()) {
@@ -1901,15 +1932,15 @@ fun UserSettingsScreen(viewModel: KaelenViewModel, profile: UserProfile) {
     val palette = LocalAppColors.current
     val context = LocalContext.current
     
-    var nameVal by remember { mutableStateOf(profile.name) }
-    var roleVal by remember { mutableStateOf(profile.role) }
-    var cityVal by remember { mutableStateOf(profile.city) }
-    var customApiKeyVal by remember { mutableStateOf(profile.customGeminiApiKey) }
+    var nameVal by remember(profile) { mutableStateOf(profile.name) }
+    var roleVal by remember(profile) { mutableStateOf(profile.role) }
+    var cityVal by remember(profile) { mutableStateOf(profile.city) }
+    var customApiKeyVal by remember(profile) { mutableStateOf(profile.customGeminiApiKey) }
     
     // Astrological Coordinates settings
-    var birthDateVal by remember { mutableStateOf(profile.birthDate) }
-    var birthTimeVal by remember { mutableStateOf(profile.birthTime) }
-    var birthPlaceVal by remember { mutableStateOf(profile.birthPlace) }
+    var birthDateVal by remember(profile) { mutableStateOf(profile.birthDate) }
+    var birthTimeVal by remember(profile) { mutableStateOf(profile.birthTime) }
+    var birthPlaceVal by remember(profile) { mutableStateOf(profile.birthPlace) }
 
     LazyColumn(
         modifier = Modifier

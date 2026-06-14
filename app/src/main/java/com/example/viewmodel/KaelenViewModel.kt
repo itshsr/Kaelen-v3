@@ -133,6 +133,9 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             initialValue = emptyList()
         )
 
+    private val _isReady = MutableStateFlow(false)
+    val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
+
     // Habits Flow
     private val _habitsList = MutableStateFlow<List<Habit>>(emptyList())
     val habitsList: StateFlow<List<Habit>> = _habitsList.asStateFlow()
@@ -151,7 +154,11 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
 
     fun updateMonthlyGoal(goal: Double) {
         _monthlyGoal.value = goal
-        prefs.edit().putFloat("monthly_goal", goal.toFloat()).apply()
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.getUserProfileOneOff() ?: UserProfile()
+            val updated = existing.copy(monthlyGoal = goal)
+            repository.insertUserProfile(updated)
+        }
     }
 
     // Confirmation Screen State (legacy, direct execution preferred to avoid broken data saving)
@@ -163,12 +170,48 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     init {
-        _monthlyGoal.value = prefs.getFloat("monthly_goal", 50000.0f).toDouble()
-        initializeProfileIfNeeded()
-        loadHabitsFromPrefs()
-        loadFocusStreakFromPrefs()
-        loadEbooksFromPrefs()
-        insertDefaultKaelenGreeting()
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.getUserProfileOneOff()
+            val profile = if (existing == null) {
+                val defaultHabits = listOf(
+                    Habit("Daily Meditation", emptySet(), 0),
+                    Habit("Forge Session (Focus)", emptySet(), 0),
+                    Habit("Ebook Reading Progress", emptySet(), 0)
+                )
+                val defaultBooks = listOf(
+                    Ebook("The Mystical Arts & Vastu Alignment", "PDF", 12, 36, 300, listOf(12, 24), listOf("Vastu aligns energy block-to-block."), "BASIM", "🏰"),
+                    Ebook("The Art of Cold Steel Strategies", "EPUB", 45, 135, 300, emptyList(), listOf("Cold execution defeats raw fire."), "VERGIL", "⚔️"),
+                    Ebook("Shinobi Information Delivery Manual", "PDF", 0, 1, 150, emptyList(), emptyList(), "KAKASHI", "📜")
+                )
+                val defaultProfile = UserProfile(
+                    name = "Harmeet",
+                    selectedTheme = "INFERNO",
+                    habitsJson = serializeHabits(defaultHabits),
+                    ebooksJson = serializeEbooks(defaultBooks),
+                    focusStreak = 0,
+                    monthlyGoal = 50000.0
+                )
+                repository.insertUserProfile(defaultProfile)
+                repository.insertLog(DatabaseLog(action = "SYSTEM", tableName = "user_profile", description = "KAELEN system initialized for first-time use"))
+                _showMorningBriefing.value = true
+                defaultProfile
+            } else {
+                repository.insertLog(DatabaseLog(action = "SYSTEM", tableName = "user_profile", description = "KAELEN cognitive nucleus booted successfully"))
+                val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                if (existing.lastBriefingDate != todayStr) {
+                    _showMorningBriefing.value = true
+                }
+                existing
+            }
+
+            _monthlyGoal.value = profile.monthlyGoal
+            _focusStreak.value = profile.focusStreak
+            deserializeHabits(profile.habitsJson)
+            deserializeEbooks(profile.ebooksJson)
+            insertDefaultKaelenGreeting()
+
+            _isReady.value = true
+        }
     }
 
     // Direct, Immediate Persistence Execution (Robust & failsafe)
@@ -360,9 +403,8 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun loadHabitsFromPrefs() {
-        val habitsJson = prefs.getString("habits_json", null)
-        if (habitsJson != null) {
+    private fun deserializeHabits(habitsJson: String) {
+        if (habitsJson.isNotEmpty()) {
             try {
                 val array = JSONArray(habitsJson)
                 val list = mutableListOf<Habit>()
@@ -379,20 +421,25 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 _habitsList.value = list
             } catch (e: Exception) {
-                Log.e("KaelenViewModel", "Error loading habits", e)
+                Log.e("KaelenViewModel", "Error deserializing habits", e)
+                loadDefaultDetailedHabits()
             }
         } else {
-            val defaults = listOf(
-                Habit("Daily Meditation", emptySet(), 0),
-                Habit("Forge Session (Focus)", emptySet(), 0),
-                Habit("Ebook Reading Progress", emptySet(), 0)
-            )
-            _habitsList.value = defaults
-            saveHabitsToPrefs(defaults)
+            loadDefaultDetailedHabits()
         }
     }
 
-    private fun saveHabitsToPrefs(list: List<Habit>) {
+    private fun loadDefaultDetailedHabits() {
+        val defaults = listOf(
+            Habit("Daily Meditation", emptySet(), 0),
+            Habit("Forge Session (Focus)", emptySet(), 0),
+            Habit("Ebook Reading Progress", emptySet(), 0)
+        )
+        _habitsList.value = defaults
+        saveHabitsToDatabase(defaults)
+    }
+
+    private fun serializeHabits(list: List<Habit>): String {
         val array = JSONArray()
         list.forEach { h ->
             val obj = JSONObject()
@@ -403,7 +450,16 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             obj.put("dates", datesArr)
             array.put(obj)
         }
-        prefs.edit().putString("habits_json", array.toString()).apply()
+        return array.toString()
+    }
+
+    private fun saveHabitsToDatabase(list: List<Habit>) {
+        val json = serializeHabits(list)
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.getUserProfileOneOff() ?: UserProfile()
+            val updated = existing.copy(habitsJson = json)
+            repository.insertUserProfile(updated)
+        }
     }
 
     fun addHabit(name: String) {
@@ -411,7 +467,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         if (newList.none { it.name.lowercase() == name.lowercase() }) {
             newList.add(Habit(name, emptySet(), 0))
             _habitsList.value = newList
-            saveHabitsToPrefs(newList)
+            saveHabitsToDatabase(newList)
         }
     }
 
@@ -432,31 +488,31 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             } else h
         }
         _habitsList.value = newList
-        saveHabitsToPrefs(newList)
+        saveHabitsToDatabase(newList)
     }
 
     fun deleteHabit(name: String) {
         val newList = _habitsList.value.filterNot { it.name == name }
         _habitsList.value = newList
-        saveHabitsToPrefs(newList)
-    }
-
-    private fun loadFocusStreakFromPrefs() {
-        _focusStreak.value = prefs.getInt("focus_streak", 0)
+        saveHabitsToDatabase(newList)
     }
 
     fun logFocusSession() {
         val streak = _focusStreak.value + 1
         _focusStreak.value = streak
-        prefs.edit().putInt("focus_streak", streak).apply()
-        
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.getUserProfileOneOff() ?: UserProfile()
+            val updated = existing.copy(focusStreak = streak)
+            repository.insertUserProfile(updated)
+        }
+
         // Mark Forge Focus habit completed
         toggleHabit("Forge Session (Focus)")
     }
 
-    private fun loadEbooksFromPrefs() {
-        val booksJson = prefs.getString("books_json", null)
-        if (booksJson != null) {
+    private fun deserializeEbooks(booksJson: String) {
+        if (booksJson.isNotEmpty()) {
             try {
                 val array = JSONArray(booksJson)
                 val list = mutableListOf<Ebook>()
@@ -468,7 +524,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                     val hlights = mutableListOf<String>()
                     val hlightsArr = obj.getJSONArray("highlights")
                     for (j in 0 until hlightsArr.length()) hlights.add(hlightsArr.getString(j))
-                    
+
                     list.add(
                         Ebook(
                             title = obj.getString("title"),
@@ -485,20 +541,25 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 _ebooksList.value = list
             } catch (e: Exception) {
-                Log.e("KaelenViewModel", "Error loading ebooks", e)
+                Log.e("KaelenViewModel", "Error deserializing ebooks", e)
+                loadDefaultEbooks()
             }
         } else {
-            val defaults = listOf(
-                Ebook("The Mystical Arts & Vastu Alignment", "PDF", 12, 36, 300, listOf(12, 24), listOf("Vastu aligns energy block-to-block."), "BASIM", "🏰"),
-                Ebook("The Art of Cold Steel Strategies", "EPUB", 45, 135, 300, emptyList(), listOf("Cold execution defeats raw fire."), "VERGIL", "⚔️"),
-                Ebook("Shinobi Information Delivery Manual", "PDF", 0, 1, 150, emptyList(), emptyList(), "KAKASHI", "📜")
-            )
-            _ebooksList.value = defaults
-            saveEbooksToPrefs(defaults)
+            loadDefaultEbooks()
         }
     }
 
-    private fun saveEbooksToPrefs(list: List<Ebook>) {
+    private fun loadDefaultEbooks() {
+        val defaults = listOf(
+            Ebook("The Mystical Arts & Vastu Alignment", "PDF", 12, 36, 300, listOf(12, 24), listOf("Vastu aligns energy block-to-block."), "BASIM", "🏰"),
+            Ebook("The Art of Cold Steel Strategies", "EPUB", 45, 135, 300, emptyList(), listOf("Cold execution defeats raw fire."), "VERGIL", "⚔️"),
+            Ebook("Shinobi Information Delivery Manual", "PDF", 0, 1, 150, emptyList(), emptyList(), "KAKASHI", "📜")
+        )
+        _ebooksList.value = defaults
+        saveEbooksToDatabase(defaults)
+    }
+
+    private fun serializeEbooks(list: List<Ebook>): String {
         val array = JSONArray()
         list.forEach { b ->
             val obj = JSONObject()
@@ -509,18 +570,27 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             obj.put("totalPages", b.totalPages)
             obj.put("author", b.author)
             obj.put("coverIcon", b.coverIcon)
-            
+
             val bmArr = JSONArray()
             b.bookmarks.forEach { bmArr.put(it) }
             obj.put("bookmarks", bmArr)
-            
+
             val hlArr = JSONArray()
             b.highlights.forEach { hlArr.put(it) }
             obj.put("highlights", hlArr)
-            
+
             array.put(obj)
         }
-        prefs.edit().putString("books_json", array.toString()).apply()
+        return array.toString()
+    }
+
+    private fun saveEbooksToDatabase(list: List<Ebook>) {
+        val json = serializeEbooks(list)
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.getUserProfileOneOff() ?: UserProfile()
+            val updated = existing.copy(ebooksJson = json)
+            repository.insertUserProfile(updated)
+        }
     }
 
     fun importBook(title: String, format: String) {
@@ -528,8 +598,8 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         if (list.none { it.title.lowercase() == title.lowercase() }) {
             list.add(Ebook(title = title, format = format, author = "Imported Doc", coverIcon = "📂"))
             _ebooksList.value = list
-            saveEbooksToPrefs(list)
-            
+            saveEbooksToDatabase(list)
+
             // Increment habit
             toggleHabit("Ebook Reading Progress")
         }
@@ -543,7 +613,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             } else b
         }
         _ebooksList.value = list
-        saveEbooksToPrefs(list)
+        saveEbooksToDatabase(list)
     }
 
     fun addBookmark(title: String, page: Int) {
@@ -555,7 +625,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             } else b
         }
         _ebooksList.value = list
-        saveEbooksToPrefs(list)
+        saveEbooksToDatabase(list)
     }
 
     fun addHighlight(title: String, text: String) {
@@ -567,7 +637,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             } else b
         }
         _ebooksList.value = list
-        saveEbooksToPrefs(list)
+        saveEbooksToDatabase(list)
     }
 
     fun insertDefaultKaelenGreeting() {
@@ -968,25 +1038,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         return cardStr
     }
 
-    // Initializer to ensure profile is not empty
-    private fun initializeProfileIfNeeded() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val existing = repository.getUserProfileOneOff()
-            if (existing == null) {
-                val defaultProfile = UserProfile(name = "Harmeet")
-                repository.insertUserProfile(defaultProfile)
-                repository.insertLog(DatabaseLog(action = "SYSTEM", tableName = "user_profile", description = "KAELEN system initialized for first-time use"))
-                _showMorningBriefing.value = true
-            } else {
-                repository.insertLog(DatabaseLog(action = "SYSTEM", tableName = "user_profile", description = "KAELEN cognitive nucleus booted successfully"))
-                
-                val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                if (existing.lastBriefingDate != todayStr) {
-                    _showMorningBriefing.value = true
-                }
-            }
-        }
-    }
+
 
     // Local Notification Sender
     private fun sendLocalNotification(title: String, text: String) {

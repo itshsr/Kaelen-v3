@@ -17,7 +17,7 @@ import com.example.data.model.*
         ChatMessage::class,
         DatabaseLog::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class KaelenDatabase : RoomDatabase() {
