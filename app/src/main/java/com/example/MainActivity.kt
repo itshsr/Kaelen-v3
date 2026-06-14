@@ -22,9 +22,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Load starting theme variant to prevent cold launch flash
-        val prefs = getSharedPreferences("kaelen_shared_prefs", Context.MODE_PRIVATE)
-        val savedTheme = prefs.getString("selected_theme", "INFERNO") ?: "INFERNO"
+        // Load starting theme variant to prevent cold launch flash from DataStore
+        val savedTheme = com.example.data.ThemePreferences.getThemeSync(this)
         val variant = when (savedTheme.uppercase()) {
             "ARCTIC_FOX", "ARCTIC FOX" -> AppThemeVariant.ARCTIC_FOX
             "CRIMSON_WOLF", "CRIMSON WOLF" -> AppThemeVariant.CRIMSON_WOLF

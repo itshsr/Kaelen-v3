@@ -357,9 +357,9 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             val existing = repository.getUserProfileOneOff()
             var profile = if (existing == null) {
                 val defaultHabits = listOf(
-                    Habit("Daily Meditation", emptySet(), 0),
-                    Habit("Forge Session (Focus)", emptySet(), 0),
-                    Habit("Ebook Reading Progress", emptySet(), 0)
+                    Habit("Morning Routine", emptySet(), 0),
+                    Habit("Evening Review", emptySet(), 0),
+                    Habit("Daily Reading", emptySet(), 0)
                 )
                 val defaultBooks = listOf(
                     Ebook("The Mystical Arts & Vastu Alignment", "PDF", 12, 36, 300, listOf(12, 24), listOf("Vastu aligns energy block-to-block."), "BASIM", "🏰"),
@@ -394,7 +394,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
             if (profile.dailyTarotDate != todayStr || profile.dailyTarotCard.isBlank()) {
                 val drawnCard = TarotDeck.drawCard()
-                val cardRepresentation = "${drawnCard.displayName}\n(${drawnCard.activeMeaning})"
+                val cardRepresentation = "${drawnCard.displayName}: ${drawnCard.activeMeaning}"
                 profile = profile.copy(
                     dailyTarotDate = todayStr,
                     dailyTarotCard = cardRepresentation
@@ -584,6 +584,22 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     is PendingAction.UpdateProfile -> {
                         repository.insertUserProfile(action.profile)
+                        
+                        // Save Theme variant immediately to DataStore & update global ThemeManager.activeVariant
+                        viewModelScope.launch(Dispatchers.IO) {
+                            val context = getApplication<Application>().applicationContext
+                            com.example.data.ThemePreferences.saveTheme(context, action.profile.selectedTheme)
+                            val variant = when (action.profile.selectedTheme.uppercase()) {
+                                "ARCTIC_FOX", "ARCTIC FOX" -> com.example.ui.theme.AppThemeVariant.ARCTIC_FOX
+                                "CRIMSON_WOLF", "CRIMSON WOLF" -> com.example.ui.theme.AppThemeVariant.CRIMSON_WOLF
+                                "NEXUS" -> com.example.ui.theme.AppThemeVariant.NEXUS
+                                else -> com.example.ui.theme.AppThemeVariant.INFERNO
+                            }
+                            withContext(Dispatchers.Main) {
+                                com.example.ui.theme.ThemeManager.activeVariant.value = variant
+                            }
+                        }
+
                         repository.insertLog(
                             DatabaseLog(
                                 action = "UPDATE",
@@ -649,9 +665,9 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
     private fun parseHabits(habitsJson: String): List<Habit> {
         if (habitsJson.isEmpty()) {
             return listOf(
-                Habit("Daily Meditation", emptySet(), 0),
-                Habit("Forge Session (Focus)", emptySet(), 0),
-                Habit("Ebook Reading Progress", emptySet(), 0)
+                Habit("Morning Routine", emptySet(), 0),
+                Habit("Evening Review", emptySet(), 0),
+                Habit("Daily Reading", emptySet(), 0)
             )
         }
         return try {
@@ -672,9 +688,9 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         } catch (e: Exception) {
             Log.e("KaelenViewModel", "Error parsing habits", e)
             listOf(
-                Habit("Daily Meditation", emptySet(), 0),
-                Habit("Forge Session (Focus)", emptySet(), 0),
-                Habit("Ebook Reading Progress", emptySet(), 0)
+                Habit("Morning Routine", emptySet(), 0),
+                Habit("Evening Review", emptySet(), 0),
+                Habit("Daily Reading", emptySet(), 0)
             )
         }
     }
@@ -752,9 +768,9 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun loadDefaultDetailedHabits() {
         val defaults = listOf(
-            Habit("Daily Meditation", emptySet(), 0),
-            Habit("Forge Session (Focus)", emptySet(), 0),
-            Habit("Ebook Reading Progress", emptySet(), 0)
+            Habit("Morning Routine", emptySet(), 0),
+            Habit("Evening Review", emptySet(), 0),
+            Habit("Daily Reading", emptySet(), 0)
         )
         _habitsList.value = defaults
         saveHabitsToDatabase(defaults)
@@ -829,7 +845,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         // Mark Forge Focus habit completed
-        toggleHabit("Forge Session (Focus)")
+        toggleHabit("Morning Routine")
     }
 
     private fun deserializeEbooks(booksJson: String) {
@@ -922,7 +938,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             saveEbooksToDatabase(list)
 
             // Increment habit
-            toggleHabit("Ebook Reading Progress")
+            toggleHabit("Daily Reading")
         }
     }
 
@@ -965,7 +981,14 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch(Dispatchers.IO) {
             val history = repository.allChatMessages.first()
             if (history.isEmpty()) {
-                val greeting = "Hello Harmeet. I am KAELEN, your core companion. Today, the day looks highly focused: you have some pending items in your Forge. Let's conquer the day with supreme execution."
+                val cal = Calendar.getInstance()
+                val hour = cal.get(Calendar.HOUR_OF_DAY)
+                val timeRef = when {
+                    hour < 12 -> "morning"
+                    hour < 17 -> "afternoon"
+                    else -> "evening"
+                }
+                val greeting = "Good $timeRef, Harmeet. I am KAELEN, your core companion. Today, the day looks highly focused: you have some pending items in your Forge. Let's conquer the day with supreme execution."
                 repository.insertChatMessage(ChatMessage(text = greeting, sender = "kaelen", mode = "KAELEN"))
             }
         }

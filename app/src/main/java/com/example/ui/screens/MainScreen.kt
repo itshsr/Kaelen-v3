@@ -62,10 +62,16 @@ fun MainScreen(viewModel: KaelenViewModel) {
     val userProfile by viewModel.userProfile.collectAsState()
     
     if (!isReady || userProfile.id != 1) {
+        val palette = when (ThemeManager.activeVariant.value) {
+            AppThemeVariant.INFERNO -> InfernoPalette
+            AppThemeVariant.NEXUS -> NexusPalette
+            AppThemeVariant.ARCTIC_FOX -> ArcticFoxPalette
+            AppThemeVariant.CRIMSON_WOLF -> CrimsonWolfPalette
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0F0F15)),
+                .background(palette.bg),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -73,14 +79,14 @@ fun MainScreen(viewModel: KaelenViewModel) {
                 verticalArrangement = Arrangement.Center
             ) {
                 CircularProgressIndicator(
-                    color = Color(0xFFFF6B00),
+                    color = palette.primary,
                     strokeWidth = 3.dp,
                     modifier = Modifier.size(48.dp)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "KAELEN COGNITIVE NUCLEUS BOOTING...",
-                    color = Color(0xFFFF6B00),
+                    color = palette.text,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.5.sp
@@ -521,6 +527,104 @@ fun DashboardScreen(viewModel: KaelenViewModel, profile: UserProfile) {
             }
         }
         
+        // Daily Habits circular rings display section
+        item {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "DAILY HABIT TRACKER",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val habitNames = listOf("Morning Routine", "Evening Review", "Daily Reading")
+                    habitNames.forEach { name ->
+                        val h = habits.firstOrNull { it.name == name } ?: Habit(name, emptySet(), 0)
+                        val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                        val isCompleted = h.completedDates.contains(todayStr)
+                        
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(160.dp)
+                                .border(BorderStroke(1.dp, if(isCompleted) palette.primary.copy(alpha = 0.3f) else palette.border), RoundedCornerShape(12.dp)),
+                            colors = CardDefaults.cardColors(containerColor = palette.card)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = name.uppercase(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = palette.text,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                
+                                Box(
+                                    modifier = Modifier.size(54.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        drawArc(
+                                            color = palette.border.copy(alpha = 0.3f),
+                                            startAngle = 0f,
+                                            sweepAngle = 360f,
+                                            useCenter = false,
+                                            style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
+                                        )
+                                        drawArc(
+                                            color = if (isCompleted) palette.primary else palette.border,
+                                            startAngle = -90f,
+                                            sweepAngle = if (isCompleted) 360f else 0f,
+                                            useCenter = false,
+                                            style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
+                                        )
+                                    }
+                                    Text(
+                                        text = if (isCompleted) "✓" else "🔥${h.streak}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isCompleted) palette.primary else palette.text
+                                    )
+                                }
+                                
+                                Button(
+                                    onClick = { viewModel.toggleHabit(name) },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isCompleted) palette.primary.copy(alpha = 0.2f) else palette.primary
+                                    ),
+                                    modifier = Modifier.fillMaxWidth().height(32.dp),
+                                    contentPadding = PaddingValues(0.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = if (isCompleted) "UNDO" else "DONE",
+                                        color = if (isCompleted) palette.primary else Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Fast Action Buttons
         item {
             Column(
@@ -605,30 +709,57 @@ fun ChatScreen(viewModel: KaelenViewModel, profile: UserProfile) {
             val agents = listOf("KAELEN", "VERGIL", "MADARA", "KAKASHI", "BASIM", "EZIO", "KRATOS", "DANTE")
             agents.forEach { agent ->
                 val isSelected = activeChatMode == agent
-                val chipColor = if (isSelected) {
-                    when (agent) {
-                        "KAELEN" -> palette.primary
-                        "BASIM" -> palette.tertiary
-                        else -> palette.secondary
-                    }
+                val isKaelen = agent == "KAELEN"
+                
+                val chipBg = if (isKaelen) {
+                    if (isSelected) palette.primary else palette.primary.copy(alpha = 0.15f)
+                } else if (isSelected) {
+                    if (agent == "BASIM") palette.tertiary else palette.secondary
                 } else {
                     palette.card
+                }
+                
+                val chipBorder = if (isKaelen) {
+                    BorderStroke(1.5.dp, palette.primary)
+                } else {
+                    BorderStroke(1.dp, if (isSelected) Color.Transparent else palette.border)
                 }
                 
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
-                        .background(chipColor)
+                        .background(chipBg)
+                        .border(chipBorder, RoundedCornerShape(20.dp))
                         .clickable { viewModel.selectChatMode(agent) }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = agent,
-                        color = if (isSelected) Color.White else palette.text.copy(alpha = 0.8f),
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        if (isKaelen) {
+                            Text(
+                                text = "🧠 ",
+                                fontSize = 12.sp
+                            )
+                        }
+                        Text(
+                            text = agent,
+                            color = if (isSelected) Color.White else palette.text.copy(alpha = 0.8f),
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected || isKaelen) FontWeight.Bold else FontWeight.Normal
+                        )
+                        if (isKaelen) {
+                            Text(
+                                text = " • Core",
+                                color = if (isSelected) Color.White.copy(alpha = 0.9f) else palette.primary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1086,9 +1217,62 @@ fun ForgeScreen(viewModel: KaelenViewModel) {
                         Spacer(modifier = Modifier.height(16.dp))
 
                         if (!timerRunning) {
-                            Text("CONFIGURE TIMER VALUES", color = palette.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("SET TIMER DURATIONS", color = palette.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.height(8.dp))
                             
+                            var focusInputVal by remember { mutableStateOf(profile.preferredFocusMinutes.toString()) }
+                            var breakInputVal by remember { mutableStateOf(profile.preferredBreakMinutes.toString()) }
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = focusInputVal,
+                                    onValueChange = { focusInputVal = it },
+                                    label = { Text("Focus Mins", color = palette.muted, fontSize = 10.sp) },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.weight(1f),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = palette.text),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = palette.text,
+                                        unfocusedTextColor = palette.text,
+                                        focusedBorderColor = palette.primary,
+                                        unfocusedBorderColor = palette.border
+                                    )
+                                )
+                                OutlinedTextField(
+                                    value = breakInputVal,
+                                    onValueChange = { breakInputVal = it },
+                                    label = { Text("Break Mins", color = palette.muted, fontSize = 10.sp) },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.weight(1f),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = palette.text),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = palette.text,
+                                        unfocusedTextColor = palette.text,
+                                        focusedBorderColor = palette.primary,
+                                        unfocusedBorderColor = palette.border
+                                    )
+                                )
+                            }
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = {
+                                    val fMin = focusInputVal.toIntOrNull() ?: 25
+                                    val bMin = breakInputVal.toIntOrNull() ?: 5
+                                    viewModel.updatePreferredTimer(fMin, bMin)
+                                    timerSeconds = (if (isBreakMode) bMin else fMin) * 60
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("APPLY & SAVE TIMER", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            // Quick option chips
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1098,77 +1282,17 @@ fun ForgeScreen(viewModel: KaelenViewModel) {
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (isSel) palette.primary else palette.border.copy(alpha = 0.3f))
-                                            .clickable {
-                                                viewModel.updatePreferredTimer(mins, profile.preferredBreakMinutes)
-                                                timerSeconds = mins * 60
-                                            }
-                                            .padding(vertical = 6.dp),
-                                        contentAlignment = Alignment.Center
+                                             .clip(RoundedCornerShape(8.dp))
+                                             .background(if (isSel) palette.primary else palette.border.copy(alpha = 0.3f))
+                                             .clickable {
+                                                 viewModel.updatePreferredTimer(mins, profile.preferredBreakMinutes)
+                                                 timerSeconds = mins * 60
+                                                 focusInputVal = mins.toString()
+                                             }
+                                             .padding(vertical = 6.dp),
+                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text("${mins}m", color = if (isSel) Color.White else palette.text, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.height(6.dp))
-                            var customInputVal by remember { mutableStateOf("") }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                OutlinedTextField(
-                                    value = customInputVal,
-                                    onValueChange = { customInputVal = it },
-                                    placeholder = { Text("Custom Focus Mins", color = palette.muted, fontSize = 10.sp) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.weight(1f).height(48.dp),
-                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = palette.text),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedTextColor = palette.text,
-                                        focusedBorderColor = palette.primary,
-                                        unfocusedBorderColor = palette.border
-                                    )
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Button(
-                                    onClick = {
-                                        val customVal = customInputVal.toIntOrNull()
-                                        if (customVal != null && customVal > 0) {
-                                            viewModel.updatePreferredTimer(customVal, profile.preferredBreakMinutes)
-                                            timerSeconds = customVal * 60
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
-                                    modifier = Modifier.height(40.dp)
-                                ) {
-                                    Text("Apply", color = Color.White, fontSize = 10.sp)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Break Duration:", color = palette.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                listOf(5, 10, 15).forEach { mins ->
-                                    val isSel = profile.preferredBreakMinutes == mins
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (isSel) palette.primary else palette.border.copy(alpha = 0.3f))
-                                            .clickable {
-                                                viewModel.updatePreferredTimer(profile.preferredFocusMinutes, mins)
-                                                timerSeconds = mins * 60
-                                            }
-                                            .padding(vertical = 6.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("${mins}m", color = if (isSel) Color.White else palette.text, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                         Text("${mins}m", color = if (isSel) Color.White else palette.text, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -1947,56 +2071,66 @@ fun VaultScreen(viewModel: KaelenViewModel) {
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
-                    var isEditingCap by remember { mutableStateOf(false) }
+                    var showCapDialog by remember { mutableStateOf(false) }
                     var capInputVal by remember { mutableStateOf(goal.toInt().toString()) }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        if (isEditingCap) {
-                            OutlinedTextField(
-                                value = capInputVal,
-                                onValueChange = { capInputVal = it },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.width(120.dp),
-                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = palette.text),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = palette.text,
-                                    unfocusedTextColor = palette.text,
-                                    focusedBorderColor = palette.primary,
-                                    unfocusedBorderColor = palette.border
-                                )
+                        Text("Cap Threshold: ₹${goal.toInt()}", color = palette.text, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(onClick = {
+                            capInputVal = goal.toInt().toString()
+                            showCapDialog = true
+                        }) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Default.Edit,
+                                contentDescription = "Edit cap",
+                                tint = palette.primary,
+                                modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            IconButton(onClick = {
-                                val amt = capInputVal.toDoubleOrNull()
-                                if (amt != null && amt > 0) {
-                                    viewModel.updateMonthlyGoal(amt)
-                                }
-                                isEditingCap = false
-                            }) {
-                                Icon(
-                                    imageVector = androidx.compose.material.icons.Icons.Default.Check,
-                                    contentDescription = "Save cap",
-                                    tint = Color.Green,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        } else {
-                            Text("Cap Threshold: ₹${goal.toInt()}", color = palette.text, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            IconButton(onClick = {
-                                capInputVal = goal.toInt().toString()
-                                isEditingCap = true
-                            }) {
-                                Icon(
-                                    imageVector = androidx.compose.material.icons.Icons.Default.Edit,
-                                    contentDescription = "Edit cap",
-                                    tint = palette.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
                         }
+                    }
+
+                    if (showCapDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showCapDialog = false },
+                            title = { Text("EDIT BUDGET CAP", color = palette.primary, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+                            text = {
+                                Column {
+                                    Text("Enter your new monthly spending budget cap limit:", color = palette.text, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                                    OutlinedTextField(
+                                        value = capInputVal,
+                                        onValueChange = { capInputVal = it },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = palette.text,
+                                            unfocusedTextColor = palette.text,
+                                            focusedBorderColor = palette.primary,
+                                            unfocusedBorderColor = palette.border
+                                        )
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    val amt = capInputVal.toDoubleOrNull()
+                                    if (amt != null && amt > 0) {
+                                        viewModel.updateMonthlyGoal(amt)
+                                    }
+                                    showCapDialog = false
+                                }) {
+                                    Text("SAVE", color = palette.primary, fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showCapDialog = false }) {
+                                    Text("CANCEL", color = palette.muted)
+                                }
+                            },
+                            containerColor = palette.card
+                        )
                     }
                 }
             }
