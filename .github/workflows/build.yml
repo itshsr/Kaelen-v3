@@ -28,7 +28,8 @@ jobs:
           curl -L -o gradle/wrapper/gradle-8.9-bin.zip \
             https://services.gradle.org/distributions/gradle-8.9-bin.zip
           cd gradle/wrapper
-          unzip -j gradle-8.9-bin.zip "gradle-8.9/lib/gradle-wrapper.jar" -d .
+          unzip -l gradle-8.9-bin.zip | grep "wrapper.jar"
+          unzip -j gradle-8.9-bin.zip "*gradle-wrapper.jar" -d .
           rm gradle-8.9-bin.zip
 
       - name: Initialize Environment Variables
