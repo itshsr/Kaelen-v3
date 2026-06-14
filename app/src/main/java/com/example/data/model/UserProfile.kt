@@ -25,5 +25,7 @@ data class UserProfile(
     val monthlyGoal: Double = 50000.0,
     val focusStreak: Int = 0,
     val habitsJson: String = "",
-    val ebooksJson: String = ""
+    val ebooksJson: String = "",
+    val preferredFocusMinutes: Int = 25,
+    val preferredBreakMinutes: Int = 5
 )

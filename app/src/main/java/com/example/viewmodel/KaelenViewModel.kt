@@ -133,6 +133,180 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             initialValue = emptyList()
         )
 
+    // People Profiles State Flow
+    val peopleProfiles: StateFlow<List<PersonProfile>> = repository.allPeopleProfiles
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    // Unlocked People Profile IDs in Current Session
+    private val _unlockedProfileIds = MutableStateFlow<Set<Int>>(emptySet())
+    val unlockedProfileIds: StateFlow<Set<Int>> = _unlockedProfileIds.asStateFlow()
+
+    fun encryptPin(pin: String): String {
+        if (pin.isEmpty()) return ""
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val hash = digest.digest(pin.toByteArray(Charsets.UTF_8))
+            hash.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            pin
+        }
+    }
+
+    fun unlockProfile(profileId: Int, pin: String): Boolean {
+        val hash = encryptPin(pin)
+        val profiles = peopleProfiles.value
+        val p = profiles.find { it.id == profileId } ?: return false
+        if (!p.isPinLocked || p.encryptedPin == hash) {
+            _unlockedProfileIds.update { it + profileId }
+            return true
+        }
+        return false
+    }
+
+    fun lockProfile(profileId: Int) {
+        _unlockedProfileIds.update { it - profileId }
+        viewModelScope.launch(Dispatchers.IO) {
+            val profiles = peopleProfiles.value
+            val p = profiles.find { it.id == profileId }
+            if (p != null) {
+                repository.insertPersonProfile(p.copy(isPinLocked = true))
+            }
+        }
+    }
+
+    fun setProfilePin(profileId: Int, pin: String, lockDirectly: Boolean = true) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val profiles = peopleProfiles.value
+            val p = profiles.find { it.id == profileId }
+            if (p != null) {
+                val encrypted = encryptPin(pin)
+                val updated = p.copy(encryptedPin = encrypted, isPinLocked = lockDirectly)
+                repository.insertPersonProfile(updated)
+                if (lockDirectly) {
+                    _unlockedProfileIds.update { it - profileId }
+                } else {
+                    _unlockedProfileIds.update { it + profileId }
+                }
+                repository.insertLog(DatabaseLog(action = "UPDATE", tableName = "people_profiles", description = "Set PIN lock details for person: " + p.name))
+            }
+        }
+    }
+
+    fun removeProfilePin(profileId: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val profiles = peopleProfiles.value
+            val p = profiles.find { it.id == profileId }
+            if (p != null) {
+                val updated = p.copy(encryptedPin = "", isPinLocked = false)
+                repository.insertPersonProfile(updated)
+                _unlockedProfileIds.update { it + profileId }
+                repository.insertLog(DatabaseLog(action = "UPDATE", tableName = "people_profiles", description = "Removed PIN lock for person: " + p.name))
+            }
+        }
+    }
+
+    fun savePersonProfile(person: PersonProfile) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.insertPersonProfile(person)
+        }
+    }
+
+    fun deletePersonProfile(person: PersonProfile) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deletePersonProfile(person)
+        }
+    }
+
+    fun drawTarotForPerson(person: PersonProfile) {
+        val drawn = TarotDeck.drawCard()
+        val cardStr = "${drawn.displayName}: ${drawn.activeMeaning}"
+        val readingStr = "${drawn.displayName} reveals: ${drawn.activeMeaning}.\n\nBasim advises: " +
+                "Direct the cosmic core focus into workspace goals. High compliance vibes surround " + person.name + "'s chart."
+        val updated = person.copy(tarotCard = cardStr, tarotReading = readingStr)
+        savePersonProfile(updated)
+    }
+
+    fun generateHoroscopeForPerson(person: PersonProfile) {
+        val adviceList = listOf(
+            "Cosmic forces are realigning in your segment. Ideal time to complete outstanding Vault ledger targets.",
+            "A serene wave of solar transits suggests taking a brief Rest Interval before embarking on the next Forge sprint.",
+            "Mercury’s position suggests highly intellectual communication and structured Vastu energy flow."
+        )
+        val selectedAdvice = adviceList.random()
+        val updated = person.copy(dailyHoroscope = "Horoscope for " + person.name + ": " + selectedAdvice)
+        savePersonProfile(updated)
+    }
+
+    val compatibilityResult = MutableStateFlow("")
+
+    fun calculateZodiac(dobString: String): String {
+        if (dobString.isBlank()) return "Unknown"
+        return try {
+            val parts = dobString.split("-")
+            if (parts.size == 3) {
+                val month = parts[1].toInt()
+                val day = parts[2].toInt()
+                when (month) {
+                    1 -> if (day < 20) "Capricorn" else "Aquarius"
+                    2 -> if (day < 19) "Aquarius" else "Pisces"
+                    3 -> if (day < 21) "Pisces" else "Aries"
+                    4 -> if (day < 20) "Aries" else "Taurus"
+                    5 -> if (day < 21) "Taurus" else "Gemini"
+                    6 -> if (day < 21) "Gemini" else "Cancer"
+                    7 -> if (day < 23) "Cancer" else "Leo"
+                    8 -> if (day < 23) "Leo" else "Virgo"
+                    9 -> if (day < 23) "Virgo" else "Libra"
+                    10 -> if (day < 23) "Libra" else "Scorpio"
+                    11 -> if (day < 22) "Scorpio" else "Sagittarius"
+                    12 -> if (day < 22) "Sagittarius" else "Capricorn"
+                    else -> "Unknown"
+                }
+            } else {
+                "Unknown"
+            }
+        } catch (e: Exception) {
+            "Unknown"
+        }
+    }
+
+    fun performCompatibilityReading(person: PersonProfile) {
+        val profiles = peopleProfiles.value
+        val harmeet = profiles.find { it.relationship.lowercase() == "self" || it.name.lowercase() == "harmeet" }
+        
+        if (harmeet == null) {
+            compatibilityResult.value = "Error: Harmeet's profile is missing. Please initialize the primary user profile first."
+            return
+        }
+
+        val unlocked = unlockedProfileIds.value
+        val harmeetLocked = harmeet.isPinLocked && !unlocked.contains(harmeet.id)
+        val personLocked = person.isPinLocked && !unlocked.contains(person.id)
+        
+        if (harmeetLocked || personLocked) {
+            compatibilityResult.value = "Access Denied. Both profiles must be unlocked to analyze compatibility."
+            return
+        }
+
+        val name1 = harmeet.name
+        val name2 = person.name
+        val sign1 = calculateZodiac(harmeet.dateOfBirth)
+        val sign2 = calculateZodiac(person.dateOfBirth)
+        
+        val pct = (50 + (name1.length + name2.length) * 3 % 45)
+        val message = "🌟 BASIM'S SYSTEM COMPATIBILITY PROTOCOL 🌟\n\n" +
+                "Subject A: $name1 ($sign1)\n" +
+                "Subject B: $name2 ($sign2)\n\n" +
+                "Analysis Index: $pct% Astro-Vector Alignment.\n\n" +
+                "Basim's guidance: Space-time matrices report that $name1 and $name2 share a robust mutual resonance. " +
+                "The alignment is highly strategic for joint creative sprints and Vastu coordination. Keep the feedback loops crystal clear!"
+        
+        compatibilityResult.value = message
+    }
+
     private val _isReady = MutableStateFlow(false)
     val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
 
@@ -161,6 +335,15 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun updatePreferredTimer(focusMin: Int, breakMin: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.getUserProfileOneOff() ?: UserProfile()
+            val updated = existing.copy(preferredFocusMinutes = focusMin, preferredBreakMinutes = breakMin)
+            repository.insertUserProfile(updated)
+            repository.insertLog(DatabaseLog(action = "UPDATE", tableName = "user_profile", description = "Preferred durations updated to $focusMin / $breakMin minutes."))
+        }
+    }
+
     // Confirmation Screen State (legacy, direct execution preferred to avoid broken data saving)
     private val _pendingAction = MutableStateFlow<PendingAction?>(null)
     val pendingAction: StateFlow<PendingAction?> = _pendingAction.asStateFlow()
@@ -172,7 +355,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
     init {
         viewModelScope.launch(Dispatchers.IO) {
             val existing = repository.getUserProfileOneOff()
-            val profile = if (existing == null) {
+            var profile = if (existing == null) {
                 val defaultHabits = listOf(
                     Habit("Daily Meditation", emptySet(), 0),
                     Habit("Forge Session (Focus)", emptySet(), 0),
@@ -185,6 +368,9 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 )
                 val defaultProfile = UserProfile(
                     name = "Harmeet",
+                    birthDate = "1995-11-20",
+                    birthTime = "14:30",
+                    birthPlace = "Delhi",
                     selectedTheme = "INFERNO",
                     habitsJson = serializeHabits(defaultHabits),
                     ebooksJson = serializeEbooks(defaultBooks),
@@ -204,11 +390,68 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 existing
             }
 
+            // Draw Tarot Card exactly once per day
+            val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            if (profile.dailyTarotDate != todayStr || profile.dailyTarotCard.isBlank()) {
+                val drawnCard = TarotDeck.drawCard()
+                val cardRepresentation = "${drawnCard.displayName}\n(${drawnCard.activeMeaning})"
+                profile = profile.copy(
+                    dailyTarotDate = todayStr,
+                    dailyTarotCard = cardRepresentation
+                )
+                repository.insertUserProfile(profile)
+                repository.insertLog(DatabaseLog(action = "UPDATE", tableName = "user_profile", description = "Tarot of the day drawn for $todayStr: ${drawnCard.displayName}"))
+            }
+
+            // Pre-create People Profiles if empty
+            val people = repository.getAllPeopleProfilesOneOff()
+            if (people.isEmpty()) {
+                val harmeetPerson = PersonProfile(
+                    name = profile.name,
+                    relationship = "Self",
+                    dateOfBirth = if (profile.birthDate.isNotBlank()) profile.birthDate else "1995-11-20",
+                    birthTime = if (profile.birthTime.isNotBlank()) profile.birthTime else "14:30",
+                    birthPlace = if (profile.birthPlace.isNotBlank()) profile.birthPlace else "Delhi",
+                    photoEmoji = "👑",
+                    city = profile.city.ifBlank { "Delhi" },
+                    notes = "Core operator and principal focus."
+                )
+                val vinishaaPerson = PersonProfile(
+                    name = "Vinishaa",
+                    relationship = "Partner",
+                    photoEmoji = "🌸",
+                    isPinLocked = true,
+                    encryptedPin = encryptPin("1111") // Default PIN 1111
+                )
+                repository.insertPersonProfile(harmeetPerson)
+                repository.insertPersonProfile(vinishaaPerson)
+                repository.insertLog(DatabaseLog(action = "SYSTEM", tableName = "people_profiles", description = "Pre-created profiles for Harmeet and Vinishaa."))
+            }
+
+            // Sync other memory states
             _monthlyGoal.value = profile.monthlyGoal
             _focusStreak.value = profile.focusStreak
             deserializeHabits(profile.habitsJson)
             deserializeEbooks(profile.ebooksJson)
             insertDefaultKaelenGreeting()
+
+            // Keep memory variables reactively synchronized with DB
+            viewModelScope.launch {
+                repository.userProfile.collect { currentProfile ->
+                    if (currentProfile != null) {
+                        _monthlyGoal.value = currentProfile.monthlyGoal
+                        _focusStreak.value = currentProfile.focusStreak
+                        val h = parseHabits(currentProfile.habitsJson)
+                        if (_habitsList.value != h) {
+                            _habitsList.value = h
+                        }
+                        val b = parseEbooks(currentProfile.ebooksJson)
+                        if (_ebooksList.value != b) {
+                            _ebooksList.value = b
+                        }
+                    }
+                }
+            }
 
             _isReady.value = true
         }
@@ -400,6 +643,84 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             } catch (e: Exception) {
                 Log.e("KaelenViewModel", "Error in pending action execution: ${e.message}")
             }
+        }
+    }
+
+    private fun parseHabits(habitsJson: String): List<Habit> {
+        if (habitsJson.isEmpty()) {
+            return listOf(
+                Habit("Daily Meditation", emptySet(), 0),
+                Habit("Forge Session (Focus)", emptySet(), 0),
+                Habit("Ebook Reading Progress", emptySet(), 0)
+            )
+        }
+        return try {
+            val array = JSONArray(habitsJson)
+            val list = mutableListOf<Habit>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val name = obj.getString("name")
+                val streak = obj.optInt("streak", 0)
+                val dates = mutableSetOf<String>()
+                val datesArr = obj.getJSONArray("dates")
+                for (j in 0 until datesArr.length()) {
+                    dates.add(datesArr.getString(j))
+                }
+                list.add(Habit(name, dates, streak))
+            }
+            list
+        } catch (e: Exception) {
+            Log.e("KaelenViewModel", "Error parsing habits", e)
+            listOf(
+                Habit("Daily Meditation", emptySet(), 0),
+                Habit("Forge Session (Focus)", emptySet(), 0),
+                Habit("Ebook Reading Progress", emptySet(), 0)
+            )
+        }
+    }
+
+    private fun parseEbooks(booksJson: String): List<Ebook> {
+        if (booksJson.isEmpty()) {
+            return listOf(
+                Ebook("The Mystical Arts & Vastu Alignment", "PDF", 12, 36, 300, listOf(12, 24), listOf("Vastu aligns energy block-to-block."), "BASIM", "🏰"),
+                Ebook("The Art of Cold Steel Strategies", "EPUB", 45, 135, 300, emptyList(), listOf("Cold execution defeats raw fire."), "VERGIL", "⚔️"),
+                Ebook("Shinobi Information Delivery Manual", "PDF", 0, 1, 150, emptyList(), emptyList(), "KAKASHI", "📜")
+            )
+        }
+        return try {
+            val array = JSONArray(booksJson)
+            val list = mutableListOf<Ebook>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val bmarks = mutableListOf<Int>()
+                val bmarksArr = obj.getJSONArray("bookmarks")
+                for (j in 0 until bmarksArr.length()) bmarks.add(bmarksArr.getInt(j))
+                val hlights = mutableListOf<String>()
+                val hlightsArr = obj.getJSONArray("highlights")
+                for (j in 0 until hlightsArr.length()) hlights.add(hlightsArr.getString(j))
+
+                list.add(
+                    Ebook(
+                        title = obj.getString("title"),
+                        format = obj.getString("format"),
+                        progress = obj.getInt("progress"),
+                        lastReadPosition = obj.getInt("lastRead"),
+                        totalPages = obj.getInt("totalPages"),
+                        bookmarks = bmarks,
+                        highlights = hlights,
+                        author = obj.optString("author", "Unknown"),
+                        coverIcon = obj.optString("coverIcon", "📖")
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            Log.e("KaelenViewModel", "Error parsing ebooks", e)
+            listOf(
+                Ebook("The Mystical Arts & Vastu Alignment", "PDF", 12, 36, 300, listOf(12, 24), listOf("Vastu aligns energy block-to-block."), "BASIM", "🏰"),
+                Ebook("The Art of Cold Steel Strategies", "EPUB", 45, 135, 300, emptyList(), listOf("Cold execution defeats raw fire."), "VERGIL", "⚔️"),
+                Ebook("Shinobi Information Delivery Manual", "PDF", 0, 1, 150, emptyList(), emptyList(), "KAKASHI", "📜")
+            )
         }
     }
 

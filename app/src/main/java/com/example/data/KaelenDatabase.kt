@@ -15,7 +15,8 @@ import com.example.data.model.*
         Project::class,
         Note::class,
         ChatMessage::class,
-        DatabaseLog::class
+        DatabaseLog::class,
+        PersonProfile::class
     ],
     version = 6,
     exportSchema = false

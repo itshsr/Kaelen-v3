@@ -6,7 +6,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.mutableStateOf
 
 enum class AppThemeVariant {
-    INFERNO, SOVEREIGN, NEXUS, APEX
+    INFERNO, NEXUS, ARCTIC_FOX, CRIMSON_WOLF
 }
 
 data class AppColorPalette(
@@ -32,28 +32,12 @@ val InfernoPalette = AppColorPalette(
     secondary = Color(0xFF8B0000), 
     tertiary = Color(0xFFFFD700), 
     text = Color(0xFFF5F5F5),
-    muted = Color(0xFF9E9E9E),
+    muted = Color(0xFFC0C0C0),
     border = Color(0xFF333333),
     shadowColor = Color(0x99000000),
     primaryGradient = listOf(Color(0xFF8B0000), Color(0xFFFF6B00)),
     headerGradient = listOf(Color(0xFF0A0A0A), Color(0xFF1C1C1C)),
     name = "INFERNO",
-    isLight = false
-)
-
-val SovereignPalette = AppColorPalette(
-    bg = Color(0xFF0D0B14),
-    card = Color(0xFF1A1525),
-    primary = Color(0xFFFF006E),
-    secondary = Color(0xFF4A0080),
-    tertiary = Color(0xFFFFC300),
-    text = Color(0xFFE6E6FA),
-    muted = Color(0xFF8B8A9F),
-    border = Color(0xFF2B223D),
-    shadowColor = Color(0x99000000),
-    primaryGradient = listOf(Color(0xFF4A0080), Color(0xFFFF006E)),
-    headerGradient = listOf(Color(0xFF0D0B14), Color(0xFF1A1525)),
-    name = "SOVEREIGN",
     isLight = false
 )
 
@@ -64,7 +48,7 @@ val NexusPalette = AppColorPalette(
     secondary = Color(0xFF004D4D),
     tertiary = Color(0xFFF5F0E8),
     text = Color(0xFFE0ECEC),
-    muted = Color(0xFF6B8080),
+    muted = Color(0xFFB0C4C4),
     border = Color(0xFF1A2626),
     shadowColor = Color(0x99000000),
     primaryGradient = listOf(Color(0xFF004D4D), Color(0xFFFF4500)),
@@ -73,19 +57,35 @@ val NexusPalette = AppColorPalette(
     isLight = false
 )
 
-val ApexPalette = AppColorPalette(
-    bg = Color(0xFF050505),
-    card = Color(0xFF111111),
-    primary = Color(0xFFFF6000),
-    secondary = Color(0xFFFF0080),
-    tertiary = Color(0xFFFFFFFF),
-    text = Color(0xFFF0F0F0),
-    muted = Color(0xFF858585),
-    border = Color(0xFF222222),
+val ArcticFoxPalette = AppColorPalette(
+    bg = Color(0xFFFFFFFF),
+    card = Color(0xFFF5F5F5),
+    primary = Color(0xFFFF6B9D),
+    secondary = Color(0xFFC44DFF),
+    tertiary = Color(0xFFFF6B9D),
+    text = Color(0xFF1A1A1A),
+    muted = Color(0xFF555555),
+    border = Color(0xFFE2E8F0),
+    shadowColor = Color(0x1A000000),
+    primaryGradient = listOf(Color(0xFFFF6B9D), Color(0xFFC44DFF)),
+    headerGradient = listOf(Color(0xFFFFFFFF), Color(0xFFF5F5F5)),
+    name = "ARCTIC FOX",
+    isLight = true
+)
+
+val CrimsonWolfPalette = AppColorPalette(
+    bg = Color(0xFF0A0000),
+    card = Color(0xFF1A0505),
+    primary = Color(0xFFFF0000),
+    secondary = Color(0xFFFF6B00),
+    tertiary = Color(0xFFFF3D00),
+    text = Color(0xFFFFFFFF),
+    muted = Color(0xFFFFAAAA),
+    border = Color(0xFF3D0C0C),
     shadowColor = Color(0x99000000),
-    primaryGradient = listOf(Color(0xFFFF0080), Color(0xFFFF6000)),
-    headerGradient = listOf(Color(0xFF050505), Color(0xFF111111)),
-    name = "APEX",
+    primaryGradient = listOf(Color(0xFFFF0000), Color(0xFFFF6B00)),
+    headerGradient = listOf(Color(0xFF0A0000), Color(0xFF1A0505)),
+    name = "CRIMSON WOLF",
     isLight = false
 )
 

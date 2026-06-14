@@ -13,9 +13,9 @@ fun MyApplicationTheme(
 ) {
     val palette = when (themeVariant) {
         AppThemeVariant.INFERNO -> InfernoPalette
-        AppThemeVariant.SOVEREIGN -> SovereignPalette
         AppThemeVariant.NEXUS -> NexusPalette
-        AppThemeVariant.APEX -> ApexPalette
+        AppThemeVariant.ARCTIC_FOX -> ArcticFoxPalette
+        AppThemeVariant.CRIMSON_WOLF -> CrimsonWolfPalette
     }
     
     val colorScheme = darkColorScheme(

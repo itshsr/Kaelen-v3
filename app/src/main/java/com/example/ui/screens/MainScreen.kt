@@ -94,9 +94,9 @@ fun MainScreen(viewModel: KaelenViewModel) {
     
     // Choose active style dynamically based on theme preset stored in UserProfile
     val themeVariant = when (userProfile.selectedTheme.uppercase()) {
-        "SOVEREIGN" -> AppThemeVariant.SOVEREIGN
+        "ARCTIC FOX", "ARCTIC_FOX" -> AppThemeVariant.ARCTIC_FOX
+        "CRIMSON WOLF", "CRIMSON_WOLF" -> AppThemeVariant.CRIMSON_WOLF
         "NEXUS" -> AppThemeVariant.NEXUS
-        "APEX" -> AppThemeVariant.APEX
         else -> AppThemeVariant.INFERNO
     }
     
@@ -837,9 +837,18 @@ fun ForgeScreen(viewModel: KaelenViewModel) {
     var newProjNote by remember { mutableStateOf("") }
     
     // Focus Timer States representation
+    val profile by viewModel.userProfile.collectAsState()
+    val defaultFocusSecs = profile.preferredFocusMinutes * 60
+    val defaultBreakSecs = profile.preferredBreakMinutes * 60
+
     var timerRunning by remember { mutableStateOf(false) }
-    var timerSeconds by remember { mutableStateOf(1500) } // 25 Min
+    var timerSeconds by remember { mutableStateOf(-1) }
     var isBreakMode by remember { mutableStateOf(false) }
+
+    val targetDefault = if (isBreakMode) defaultBreakSecs else defaultFocusSecs
+    if (!timerRunning && (timerSeconds == -1 || timerSeconds == defaultFocusSecs || timerSeconds == defaultBreakSecs || timerSeconds == 300 || timerSeconds == 1500)) {
+        timerSeconds = targetDefault
+    }
     
     LaunchedEffect(timerRunning) {
         if (timerRunning) {
@@ -852,11 +861,11 @@ fun ForgeScreen(viewModel: KaelenViewModel) {
                 viewModel.logFocusSession()
                 Toast.makeText(context, "Focus session accomplished! Streak updated in Room DB.", Toast.LENGTH_LONG).show()
                 isBreakMode = true
-                timerSeconds = 300 // 5 min break
+                timerSeconds = defaultBreakSecs
             } else {
                 Toast.makeText(context, "Break over! Time to construct code.", Toast.LENGTH_SHORT).show()
                 isBreakMode = false
-                timerSeconds = 1500
+                timerSeconds = defaultFocusSecs
             }
             timerRunning = false
         }
@@ -1074,14 +1083,104 @@ fun ForgeScreen(viewModel: KaelenViewModel) {
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        if (!timerRunning) {
+                            Text("CONFIGURE TIMER VALUES", color = palette.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                listOf(15, 25, 30, 45, 60).forEach { mins ->
+                                    val isSel = profile.preferredFocusMinutes == mins
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSel) palette.primary else palette.border.copy(alpha = 0.3f))
+                                            .clickable {
+                                                viewModel.updatePreferredTimer(mins, profile.preferredBreakMinutes)
+                                                timerSeconds = mins * 60
+                                            }
+                                            .padding(vertical = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("${mins}m", color = if (isSel) Color.White else palette.text, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(6.dp))
+                            var customInputVal by remember { mutableStateOf("") }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = customInputVal,
+                                    onValueChange = { customInputVal = it },
+                                    placeholder = { Text("Custom Focus Mins", color = palette.muted, fontSize = 10.sp) },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = palette.text),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = palette.text,
+                                        focusedBorderColor = palette.primary,
+                                        unfocusedBorderColor = palette.border
+                                    )
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Button(
+                                    onClick = {
+                                        val customVal = customInputVal.toIntOrNull()
+                                        if (customVal != null && customVal > 0) {
+                                            viewModel.updatePreferredTimer(customVal, profile.preferredBreakMinutes)
+                                            timerSeconds = customVal * 60
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
+                                    modifier = Modifier.height(40.dp)
+                                ) {
+                                    Text("Apply", color = Color.White, fontSize = 10.sp)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Break Duration:", color = palette.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(5, 10, 15).forEach { mins ->
+                                    val isSel = profile.preferredBreakMinutes == mins
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSel) palette.primary else palette.border.copy(alpha = 0.3f))
+                                            .clickable {
+                                                viewModel.updatePreferredTimer(profile.preferredFocusMinutes, mins)
+                                                timerSeconds = mins * 60
+                                            }
+                                            .padding(vertical = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("${mins}m", color = if (isSel) Color.White else palette.text, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
                         
                         Box(
                             modifier = Modifier.size(200.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            val maxSecs = if (isBreakMode) 300 else 1500
-                            val pct = timerSeconds.toFloat() / maxSecs.toFloat()
+                            val maxSecs = if (isBreakMode) (if (defaultBreakSecs > 0) defaultBreakSecs else 300) else (if (defaultFocusSecs > 0) defaultFocusSecs else 1500)
+                            val pct = if (maxSecs > 0) timerSeconds.toFloat() / maxSecs.toFloat() else 0f
                             Canvas(modifier = Modifier.fillMaxSize()) {
                                 drawArc(
                                     color = palette.border.copy(alpha = 0.2f),
@@ -1099,8 +1198,8 @@ fun ForgeScreen(viewModel: KaelenViewModel) {
                                 )
                             }
                             
-                            val minutes = timerSeconds / 60
-                            val seconds = timerSeconds % 60
+                            val minutes = if (timerSeconds >= 0) timerSeconds / 60 else 0
+                            val seconds = if (timerSeconds >= 0) timerSeconds % 60 else 0
                             Text(
                                 text = String.format("%02d:%02d", minutes, seconds),
                                 fontSize = 36.sp,
@@ -1120,7 +1219,7 @@ fun ForgeScreen(viewModel: KaelenViewModel) {
                             Button(
                                 onClick = {
                                     timerRunning = false
-                                    timerSeconds = if (isBreakMode) 300 else 1500
+                                    timerSeconds = if (isBreakMode) (if (defaultBreakSecs > 0) defaultBreakSecs else 300) else (if (defaultFocusSecs > 0) defaultFocusSecs else 1500)
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = palette.border)
                             ) {
@@ -1179,6 +1278,7 @@ fun OracleScreen(viewModel: KaelenViewModel, profile: UserProfile) {
     val palette = LocalAppColors.current
     val context = LocalContext.current
     var activeSubOption by remember { mutableStateOf("TAROT") } // TAROT, KUNDLI, ASTROLOGY, VASTU, NUMEROLOGY, PALMISTRY
+    var selectedPersonId by remember { mutableStateOf<Int?>(null) }
     
     val imageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -1260,35 +1360,80 @@ fun OracleScreen(viewModel: KaelenViewModel, profile: UserProfile) {
                         }
                     }
                     "KUNDLI" -> {
-                        Text("KUNDLI BIRTH MATRIX", color = palette.tertiary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Derived from profile detail coordinates: ${profile.birthDate} @ ${profile.birthTime} Place: ${profile.birthPlace}", color = palette.muted, fontSize = 11.sp)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        // Kundli representation grid
-                        Box(
+                        val people by viewModel.peopleProfiles.collectAsState()
+                        val currentPerson = people.find { it.id == selectedPersonId }
+                            ?: people.find { it.relationship.lowercase() == "self" }
+                            ?: people.firstOrNull()
+
+                        Text("SELECT PROFILE FOR KUNDLI MAP", color = palette.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
                             modifier = Modifier
-                                .size(160.dp)
-                                .align(Alignment.CenterHorizontally)
-                                .border(BorderStroke(2.dp, palette.primary))
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(0f, 0f), end = androidx.compose.ui.geometry.Offset(size.width, size.height))
-                                drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(0f, size.height), end = androidx.compose.ui.geometry.Offset(size.width, 0f))
-                                drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(size.width/2f, 0f), end = androidx.compose.ui.geometry.Offset(0f, size.height/2f))
-                                drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(size.width/2f, 0f), end = androidx.compose.ui.geometry.Offset(size.width, size.height/2f))
-                                drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(0f, size.height/2f), end = androidx.compose.ui.geometry.Offset(size.width/2f, size.height))
-                                drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(size.width/2f, size.height), end = androidx.compose.ui.geometry.Offset(size.width, size.height/2f))
+                            people.forEach { person ->
+                                val isSelected = currentPerson?.id == person.id
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(if (isSelected) palette.primary else palette.border.copy(alpha = 0.4f))
+                                        .clickable { selectedPersonId = person.id }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "${person.photoEmoji} ${person.name}",
+                                        color = if (isSelected) Color.White else palette.text,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
-                            Text("Sun (Asc)", modifier = Modifier.align(Alignment.Center), color = palette.tertiary, fontWeight = FontWeight.Bold, fontSize = 10.sp)
                         }
                         
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Rashi planetary positioning: Jupiter in 11th House of gains (Excellent for technology role). Moon transit indicates mental sprint capability.",
-                            color = palette.text,
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp
-                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        if (currentPerson == null || currentPerson.dateOfBirth.isBlank() || currentPerson.birthTime.isBlank() || currentPerson.birthPlace.isBlank()) {
+                            Text(
+                                text = "To map Kundli birth chart, please configure birth date, time, and birth place inside this person's profile card in the USER tab settings.",
+                                color = palette.muted,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        } else {
+                            val zodiacName = viewModel.run { calculateZodiac(currentPerson.dateOfBirth) }
+                            Text("KUNDLI BIRTH MATRIX", color = palette.tertiary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Derived from profile detail coordinates: ${currentPerson.dateOfBirth} @ ${currentPerson.birthTime} Place: ${currentPerson.birthPlace}", color = palette.muted, fontSize = 11.sp)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            // Kundli representation grid
+                            Box(
+                                modifier = Modifier
+                                    .size(160.dp)
+                                    .align(Alignment.CenterHorizontally)
+                                    .border(BorderStroke(2.dp, palette.primary))
+                            ) {
+                                Canvas(modifier = Modifier.fillMaxSize()) {
+                                    drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(0f, 0f), end = androidx.compose.ui.geometry.Offset(size.width, size.height))
+                                    drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(0f, size.height), end = androidx.compose.ui.geometry.Offset(size.width, 0f))
+                                    drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(size.width/2f, 0f), end = androidx.compose.ui.geometry.Offset(0f, size.height/2f))
+                                    drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(size.width/2f, 0f), end = androidx.compose.ui.geometry.Offset(size.width, size.height/2f))
+                                    drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(0f, size.height/2f), end = androidx.compose.ui.geometry.Offset(size.width/2f, size.height))
+                                    drawLine(Color.White, start = androidx.compose.ui.geometry.Offset(size.width/2f, size.height), end = androidx.compose.ui.geometry.Offset(size.width, size.height/2f))
+                                }
+                                Text(zodiacName.uppercase(), modifier = Modifier.align(Alignment.Center), color = palette.tertiary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Rashi planetary positioning for ${currentPerson.name}: Jupiter in 11th House of gains (Excellent for technology role). Moon transit indicates mental sprint capability.",
+                                color = palette.text,
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp
+                            )
+                        }
                     }
                     "ASTROLOGY" -> {
                         Text("ASTROLOGICAL TIMELINES", color = palette.tertiary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -1802,7 +1947,57 @@ fun VaultScreen(viewModel: KaelenViewModel) {
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Cap Threshold: ₹${goal.toInt()}", color = palette.text, fontWeight = FontWeight.Bold)
+                    var isEditingCap by remember { mutableStateOf(false) }
+                    var capInputVal by remember { mutableStateOf(goal.toInt().toString()) }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        if (isEditingCap) {
+                            OutlinedTextField(
+                                value = capInputVal,
+                                onValueChange = { capInputVal = it },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.width(120.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = palette.text),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = palette.text,
+                                    unfocusedTextColor = palette.text,
+                                    focusedBorderColor = palette.primary,
+                                    unfocusedBorderColor = palette.border
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(onClick = {
+                                val amt = capInputVal.toDoubleOrNull()
+                                if (amt != null && amt > 0) {
+                                    viewModel.updateMonthlyGoal(amt)
+                                }
+                                isEditingCap = false
+                            }) {
+                                Icon(
+                                    imageVector = androidx.compose.material.icons.Icons.Default.Check,
+                                    contentDescription = "Save cap",
+                                    tint = Color.Green,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        } else {
+                            Text("Cap Threshold: ₹${goal.toInt()}", color = palette.text, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(onClick = {
+                                capInputVal = goal.toInt().toString()
+                                isEditingCap = true
+                            }) {
+                                Icon(
+                                    imageVector = androidx.compose.material.icons.Icons.Default.Edit,
+                                    contentDescription = "Edit cap",
+                                    tint = palette.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1931,6 +2126,9 @@ fun VaultScreen(viewModel: KaelenViewModel) {
 fun UserSettingsScreen(viewModel: KaelenViewModel, profile: UserProfile) {
     val palette = LocalAppColors.current
     val context = LocalContext.current
+    val peopleProfiles by viewModel.peopleProfiles.collectAsState()
+    val unlockedProfileIds by viewModel.unlockedProfileIds.collectAsState()
+    val compatibilityResult by viewModel.compatibilityResult.collectAsState()
     
     var nameVal by remember(profile) { mutableStateOf(profile.name) }
     var roleVal by remember(profile) { mutableStateOf(profile.role) }
@@ -2098,9 +2296,9 @@ fun UserSettingsScreen(viewModel: KaelenViewModel, profile: UserProfile) {
                     
                     val themeOptions = listOf(
                         ThemeOption("INFERNO", "Inferno Warm Red", listOf(Color(0xFF8B0000), Color(0xFFFF6B00)), Color(0xFFFFD700)),
-                        ThemeOption("SOVEREIGN", "Sovereign Deep Violet", listOf(Color(0xFF4A0080), Color(0xFFFF006E)), Color(0xFFFFC300)),
                         ThemeOption("NEXUS", "Nexus Cyber Slate", listOf(Color(0xFF004D4D), Color(0xFFFF4500)), Color(0xFFF5F0E8)),
-                        ThemeOption("APEX", "Apex High Contrast", listOf(Color(0xFFFF0080), Color(0xFFFF6000)), Color(0xFFFFFFFF))
+                        ThemeOption("ARCTIC FOX", "Arctic Fox Feminine White", listOf(Color(0xFFFF6B9D), Color(0xFFC44DFF)), Color(0xFFFF6B9D)),
+                        ThemeOption("CRIMSON WOLF", "Crimson Wolf Dominant Red", listOf(Color(0xFFFF0000), Color(0xFFFF6B00)), Color(0xFFFF3D00))
                     )
                     
                     themeOptions.forEach { opt ->
@@ -2136,6 +2334,528 @@ fun UserSettingsScreen(viewModel: KaelenViewModel, profile: UserProfile) {
                             }
                         }
                         Spacer(modifier = Modifier.height(6.dp))
+                    }
+                }
+            }
+        }
+
+        // --- PEOPLE SECTION ---
+        item {
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "COGNITIVE PEOPLE NETWORK",
+                    color = palette.primary,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                var showAddPersonDialog by remember { mutableStateOf(false) }
+                IconButton(onClick = { showAddPersonDialog = true }) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.Add,
+                        contentDescription = "Add Person",
+                        tint = palette.primary
+                    )
+                }
+
+                if (showAddPersonDialog) {
+                    var newName by remember { mutableStateOf("") }
+                    var newRel by remember { mutableStateOf("Friend") }
+                    var newDob by remember { mutableStateOf("") }
+                    var newTime by remember { mutableStateOf("") }
+                    var newPlace by remember { mutableStateOf("") }
+                    var newCity by remember { mutableStateOf("") }
+                    var newNotes by remember { mutableStateOf("") }
+                    var newEmoji by remember { mutableStateOf("👤") }
+                    var requiresPinToggle by remember { mutableStateOf(false) }
+                    var newPinValue by remember { mutableStateOf("") }
+
+                    AlertDialog(
+                        onDismissRequest = { showAddPersonDialog = false },
+                        title = { Text("Initialize Person Profile", color = palette.text, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+                        containerColor = palette.card,
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    if (newName.isNotBlank()) {
+                                        val encryptedPinStr = if (requiresPinToggle && newPinValue.isNotBlank()) {
+                                            viewModel.run { encryptPin(newPinValue) }
+                                        } else ""
+                                        val newProg = com.example.data.model.PersonProfile(
+                                            name = newName.trim(),
+                                            relationship = newRel,
+                                            dateOfBirth = newDob.trim(),
+                                            birthTime = newTime.trim(),
+                                            birthPlace = newPlace.trim(),
+                                            city = newCity.trim(),
+                                            notes = newNotes.trim(),
+                                            photoEmoji = newEmoji,
+                                            isPinLocked = requiresPinToggle,
+                                            encryptedPin = encryptedPinStr
+                                        )
+                                        viewModel.savePersonProfile(newProg)
+                                        showAddPersonDialog = false
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = palette.primary)
+                            ) {
+                                Text("Add", color = Color.White)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showAddPersonDialog = false }) {
+                                Text("Cancel", color = palette.muted)
+                            }
+                        },
+                        text = {
+                            Column(
+                                modifier = Modifier.verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = newName,
+                                    onValueChange = { newName = it },
+                                    label = { Text("Name (Required)", color = palette.muted) },
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                )
+                                OutlinedTextField(
+                                    value = newRel,
+                                    onValueChange = { newRel = it },
+                                    label = { Text("Relationship Tag (Partner, Spouse, Friend...)", color = palette.muted) },
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                )
+                                OutlinedTextField(
+                                    value = newDob,
+                                    onValueChange = { newDob = it },
+                                    label = { Text("DOB (YYYY-MM-DD)", color = palette.muted) },
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                )
+                                OutlinedTextField(
+                                    value = newTime,
+                                    onValueChange = { newTime = it },
+                                    label = { Text("Birth Time (HH:MM)", color = palette.muted) },
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                )
+                                OutlinedTextField(
+                                    value = newPlace,
+                                    onValueChange = { newPlace = it },
+                                    label = { Text("Birth Place", color = palette.muted) },
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                )
+                                OutlinedTextField(
+                                    value = newCity,
+                                    onValueChange = { newCity = it },
+                                    label = { Text("Current City", color = palette.muted) },
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                )
+                                OutlinedTextField(
+                                    value = newNotes,
+                                    onValueChange = { newNotes = it },
+                                    label = { Text("Personal Notes", color = palette.muted) },
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                )
+                                OutlinedTextField(
+                                    value = newEmoji,
+                                    onValueChange = { newEmoji = it },
+                                    label = { Text("Avatar Emoji (e.g. 🦊)", color = palette.muted) },
+                                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("PIN Gate Lock Profile", color = palette.text, fontSize = 12.sp)
+                                    Switch(
+                                        checked = requiresPinToggle,
+                                        onCheckedChange = { requiresPinToggle = it },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = palette.primary)
+                                    )
+                                }
+                                if (requiresPinToggle) {
+                                    OutlinedTextField(
+                                        value = newPinValue,
+                                        onValueChange = { newPinValue = it },
+                                        label = { Text("Enter Profile PIN", color = palette.muted) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                    )
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        if (peopleProfiles.isEmpty()) {
+            item {
+                Text("No people profiles created. Tap '+' above to register.", color = palette.muted, fontSize = 12.sp)
+            }
+        } else {
+            items(peopleProfiles) { person ->
+                val isUnlocked = !person.isPinLocked || unlockedProfileIds.contains(person.id)
+                var selectedReportType by remember { mutableStateOf("") }
+                
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = palette.card)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(palette.border.copy(alpha = 0.4f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(person.photoEmoji.ifBlank { "👤" }, fontSize = 20.sp)
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(person.name, fontWeight = FontWeight.Bold, color = palette.text, fontSize = 15.sp)
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(palette.primary.copy(alpha = 0.15f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(person.relationship.uppercase(), color = palette.primary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (person.isPinLocked) {
+                                    Icon(
+                                        imageVector = if (isUnlocked) androidx.compose.material.icons.Icons.Default.LockOpen else androidx.compose.material.icons.Icons.Default.Lock,
+                                        contentDescription = "Pin locked status",
+                                        tint = if (isUnlocked) Color.Green else palette.primary,
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clickable {
+                                                if (isUnlocked) {
+                                                    viewModel.lockProfile(person.id)
+                                                    selectedReportType = ""
+                                                    Toast.makeText(context, "Profile session locked.", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                
+                                IconButton(onClick = { viewModel.deletePersonProfile(person) }) {
+                                    Icon(
+                                        imageVector = androidx.compose.material.icons.Icons.Default.Delete,
+                                        contentDescription = "Delete Profile",
+                                        tint = Color.Red,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        if (!isUnlocked) {
+                            Text("This profile is highly confidential. Enter correct PIN access sequence:", color = palette.muted, fontSize = 11.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            var enteredPinStr by remember { mutableStateOf("") }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = enteredPinStr,
+                                    onValueChange = { enteredPinStr = it },
+                                    placeholder = { Text("Unlock PIN Phrase", color = palette.muted) },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = palette.text),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = palette.text,
+                                        focusedBorderColor = palette.primary,
+                                        unfocusedBorderColor = palette.border
+                                    )
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        val pass = viewModel.unlockProfile(person.id, enteredPinStr)
+                                        if (pass) {
+                                            Toast.makeText(context, "Decrypted entry authorized.", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Sequence mismatched. Warning logged.", Toast.LENGTH_SHORT).show()
+                                        }
+                                        enteredPinStr = ""
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
+                                    modifier = Modifier.height(36.dp)
+                                ) {
+                                    Text("Authorize", color = Color.White, fontSize = 10.sp)
+                                }
+                            }
+                        } else {
+                            val displayAge = if (person.dateOfBirth.isNotBlank()) {
+                                try {
+                                    val dbDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(person.dateOfBirth)
+                                    if (dbDate != null) {
+                                        val diff = Date().time - dbDate.time
+                                        val ageYears = (diff / (1000L * 60 * 60 * 24 * 365)).toInt()
+                                        "$ageYears yrs"
+                                    } else "Unknown"
+                                } catch (e: Exception) { "Unknown" }
+                            } else "Unknown"
+
+                            val zodiacName = if (person.dateOfBirth.isNotBlank()) {
+                                viewModel.run { calculateZodiac(person.dateOfBirth) }
+                            } else "Unknown Position"
+
+                            Text("Zodiac Sign: $zodiacName  |  Age: $displayAge", color = palette.tertiary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            if (person.city.isNotBlank()) {
+                                Text("Current Coordinate: ${person.city}", color = palette.text, fontSize = 11.sp)
+                            }
+                            if (person.notes.isNotBlank()) {
+                                Text("Directives / Notes: ${person.notes}", color = palette.muted, fontSize = 11.sp, style = MaterialTheme.typography.bodySmall)
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            
+                            var showEditZone by remember { mutableStateOf(false) }
+                            Text(
+                                text = if (showEditZone) "HIDE SETTINGS" else "CONFIGURE PROFILE SETTINGS",
+                                color = palette.primary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .clickable { showEditZone = !showEditZone }
+                                    .padding(vertical = 4.dp)
+                            )
+
+                            if (showEditZone) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    var editName by remember { mutableStateOf(person.name) }
+                                    var editRel by remember { mutableStateOf(person.relationship) }
+                                    var editDob by remember { mutableStateOf(person.dateOfBirth) }
+                                    var editTime by remember { mutableStateOf(person.birthTime) }
+                                    var editPlace by remember { mutableStateOf(person.birthPlace) }
+                                    var editCity by remember { mutableStateOf(person.city) }
+                                    var editNotes by remember { mutableStateOf(person.notes) }
+                                    var editEmoji by remember { mutableStateOf(person.photoEmoji) }
+                                    var editPinVal by remember { mutableStateOf("") }
+                                    var pinLockedToggle by remember { mutableStateOf(person.isPinLocked) }
+
+                                    OutlinedTextField(
+                                        value = editName,
+                                        onValueChange = { editName = it },
+                                        label = { Text("Name", color = palette.muted, fontSize = 10.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                    )
+                                    OutlinedTextField(
+                                        value = editRel,
+                                        onValueChange = { editRel = it },
+                                        label = { Text("Relationship", color = palette.muted, fontSize = 10.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                    )
+                                    OutlinedTextField(
+                                        value = editDob,
+                                        onValueChange = { editDob = it },
+                                        label = { Text("DOB (YYYY-MM-DD)", color = palette.muted, fontSize = 10.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                    )
+                                    OutlinedTextField(
+                                        value = editTime,
+                                        onValueChange = { editTime = it },
+                                        label = { Text("Birth Time (HH:MM)", color = palette.muted, fontSize = 10.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                    )
+                                    OutlinedTextField(
+                                        value = editPlace,
+                                        onValueChange = { editPlace = it },
+                                        label = { Text("Birth Place", color = palette.muted, fontSize = 10.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                    )
+                                    OutlinedTextField(
+                                        value = editCity,
+                                        onValueChange = { editCity = it },
+                                        label = { Text("Current City", color = palette.muted, fontSize = 10.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                    )
+                                    OutlinedTextField(
+                                        value = editNotes,
+                                        onValueChange = { editNotes = it },
+                                        label = { Text("Notes", color = palette.muted, fontSize = 10.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                    )
+                                    OutlinedTextField(
+                                        value = editEmoji,
+                                        onValueChange = { editEmoji = it },
+                                        label = { Text("Avatar Emoji", color = palette.muted, fontSize = 10.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Pin Lock Gate Enabled", color = palette.text, fontSize = 11.sp)
+                                        Switch(
+                                            checked = pinLockedToggle,
+                                            onCheckedChange = { pinLockedToggle = it },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = palette.primary)
+                                        )
+                                    }
+                                    if (pinLockedToggle) {
+                                        OutlinedTextField(
+                                            value = editPinVal,
+                                            onValueChange = { editPinVal = it },
+                                            label = { Text("Update PIN (Optional)", color = palette.muted, fontSize = 10.sp) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = palette.text, focusedBorderColor = palette.primary)
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            val cryptStr = if (pinLockedToggle) {
+                                                if (editPinVal.isNotBlank()) viewModel.run { encryptPin(editPinVal) } else person.encryptedPin
+                                            } else ""
+                                            val saved = person.copy(
+                                                name = editName.trim(),
+                                                relationship = editRel.trim(),
+                                                dateOfBirth = editDob.trim(),
+                                                birthTime = editTime.trim(),
+                                                birthPlace = editPlace.trim(),
+                                                city = editCity.trim(),
+                                                notes = editNotes.trim(),
+                                                photoEmoji = editEmoji.trim(),
+                                                isPinLocked = pinLockedToggle,
+                                                encryptedPin = cryptStr
+                                            )
+                                            viewModel.savePersonProfile(saved)
+                                            showEditZone = false
+                                            Toast.makeText(context, "Profile configurations synchronized.", Toast.LENGTH_SHORT).show()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Save Settings", color = Color.White, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        viewModel.drawTarotForPerson(person)
+                                        selectedReportType = "TAROT"
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = palette.border),
+                                    modifier = Modifier.weight(1f).height(34.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp)
+                                ) {
+                                    Text("Tarot", color = palette.text, fontSize = 9.sp)
+                                }
+                                Button(
+                                    onClick = {
+                                        viewModel.generateHoroscopeForPerson(person)
+                                        selectedReportType = "HOROSCOPE"
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = palette.border),
+                                    modifier = Modifier.weight(1f).height(34.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp)
+                                ) {
+                                    Text("Horoscope", color = palette.text, fontSize = 9.sp)
+                                }
+                                Button(
+                                    onClick = {
+                                        selectedReportType = "KUNDLI"
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = palette.border),
+                                    modifier = Modifier.weight(1f).height(34.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp)
+                                ) {
+                                    Text("Kundli", color = palette.text, fontSize = 9.sp)
+                                }
+                                if (person.relationship.lowercase() != "self") {
+                                    Button(
+                                        onClick = {
+                                            viewModel.performCompatibilityReading(person)
+                                            selectedReportType = "COMPATIBILITY"
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
+                                        modifier = Modifier.weight(1.2f).height(34.dp),
+                                        contentPadding = PaddingValues(horizontal = 4.dp)
+                                    ) {
+                                        Text("Compatibility", color = Color.White, fontSize = 9.sp)
+                                    }
+                                }
+                            }
+
+                            val reportContent = when (selectedReportType) {
+                                "TAROT" -> if (person.tarotReading.isNotEmpty()) "${person.tarotCard}\n\n${person.tarotReading}" else "No active Tarot reading drawn yet."
+                                "HOROSCOPE" -> if (person.dailyHoroscope.isNotEmpty()) person.dailyHoroscope else "No daily horoscope generated yet."
+                                "KUNDLI" -> if (person.dateOfBirth.isBlank() || person.birthTime.isBlank() || person.birthPlace.isBlank()) {
+                                    "Birth location coords, time, or date missing from this operator profile vector."
+                                } else {
+                                    "KUNDLI ASTROGRAPH MAP COORDINATES:\n" +
+                                    "Sun Sign Position: ${zodiacName}\n" +
+                                    "Ascendant Degree: 18° Virgo\n" +
+                                    "Moon Positioning: Taurus (4th Celestial House)\n" +
+                                    "Birth Location Coordinates: ${person.birthPlace} at ${person.birthTime}"
+                                }
+                                "COMPATIBILITY" -> compatibilityResult
+                                else -> ""
+                            }
+
+                            if (reportContent.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = palette.border.copy(alpha = 0.3f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text("BASIM COSMIC REPORT RESULTS:", color = palette.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(reportContent, color = palette.text, fontSize = 11.sp, style = MaterialTheme.typography.bodySmall)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            "CLEAR REPORT",
+                                            color = palette.muted,
+                                            fontSize = 9.sp,
+                                            modifier = Modifier
+                                                .clickable { selectedReportType = "" }
+                                                .padding(vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

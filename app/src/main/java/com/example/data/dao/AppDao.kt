@@ -87,4 +87,17 @@ interface AppDao {
 
     @Query("DELETE FROM database_logs")
     suspend fun clearAllLogs()
+
+    // People Profiles
+    @Query("SELECT * FROM people_profiles ORDER BY name ASC")
+    fun getAllPeopleProfiles(): Flow<List<PersonProfile>>
+
+    @Query("SELECT * FROM people_profiles ORDER BY name ASC")
+    suspend fun getAllPeopleProfilesOneOff(): List<PersonProfile>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPersonProfile(person: PersonProfile)
+
+    @Delete
+    suspend fun deletePersonProfile(person: PersonProfile)
 }

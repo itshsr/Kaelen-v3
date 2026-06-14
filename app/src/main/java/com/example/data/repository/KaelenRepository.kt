@@ -43,4 +43,10 @@ class KaelenRepository(private val appDao: AppDao) {
     val allLogs: Flow<List<DatabaseLog>> = appDao.getAllLogs()
     suspend fun insertLog(log: DatabaseLog) = appDao.insertLog(log)
     suspend fun clearLogs() = appDao.clearAllLogs()
+
+    // People Profiles
+    val allPeopleProfiles: Flow<List<PersonProfile>> = appDao.getAllPeopleProfiles()
+    suspend fun getAllPeopleProfilesOneOff(): List<PersonProfile> = appDao.getAllPeopleProfilesOneOff()
+    suspend fun insertPersonProfile(person: PersonProfile) = appDao.insertPersonProfile(person)
+    suspend fun deletePersonProfile(person: PersonProfile) = appDao.deletePersonProfile(person)
 }
