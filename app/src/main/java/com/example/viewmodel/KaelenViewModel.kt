@@ -452,6 +452,18 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
 
+            val savedThemeName = com.example.data.ThemePreferences.getThemeSync(getApplication())
+            val savedVariant = when (savedThemeName.uppercase()) {
+                "ARCTIC_FOX", "ARCTIC_FOX" -> com.example.ui.theme.AppThemeVariant.ARCTIC_FOX
+                "CRIMSON_WOLF", "CRIMSON_WOLF" -> com.example.ui.theme.AppThemeVariant.CRIMSON_WOLF
+                "NEXUS" -> com.example.ui.theme.AppThemeVariant.NEXUS
+                else -> com.example.ui.theme.AppThemeVariant.INFERNO
+            }
+            withContext(Dispatchers.Main) {
+                com.example.ui.theme.ThemeManager.activeVariant.value = savedVariant
+            }
+
+            _monthlyGoal.value = profile.monthlyGoal
             _isReady.value = true
         }
     }
