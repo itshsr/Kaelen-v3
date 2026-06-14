@@ -14,9 +14,10 @@ import com.example.data.model.*
         Task::class,
         Project::class,
         Note::class,
-        ChatMessage::class
+        ChatMessage::class,
+        DatabaseLog::class
     ],
-    version = 2,
+    version = 5,
     exportSchema = false
 )
 abstract class KaelenDatabase : RoomDatabase() {

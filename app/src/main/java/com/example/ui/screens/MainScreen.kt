@@ -19,6 +19,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +59,8 @@ import com.example.ui.theme.*
 import com.example.viewmodel.AppTab
 import com.example.viewmodel.KaelenViewModel
 import com.example.viewmodel.PendingAction
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 import com.example.viewmodel.VoiceSuggestion
 import java.text.SimpleDateFormat
 import java.util.*
@@ -130,6 +135,7 @@ fun ThemeSelectorHeader() {
 @Composable
 fun RenderActiveTab(currentTab: AppTab, viewModel: KaelenViewModel) {
     when (currentTab) {
+        AppTab.DASHBOARD -> DashboardScreen(viewModel)
         AppTab.CHAT -> ChatScreen(viewModel)
         AppTab.BUDGET -> BudgetScreen(viewModel)
         AppTab.TASKS -> TasksScreen(viewModel)
@@ -205,6 +211,16 @@ fun MainScreen(viewModel: KaelenViewModel) {
                         onDismiss = { viewModel.dismissAction() }
                     )
                 }
+
+                // Morning Briefing Dialog Rule
+                val showBriefing by viewModel.showMorningBriefing.collectAsState()
+                if (showBriefing) {
+                    MorningBriefingDialog(
+                        viewModel = viewModel,
+                        profile = userProfile,
+                        onDismiss = { viewModel.dismissMorningBriefing() }
+                    )
+                }
             }
         }
     }
@@ -229,6 +245,13 @@ fun KaelenBottomNavigation(
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            NavigationTabItem(
+                tab = AppTab.DASHBOARD,
+                icon = Icons.Default.Dashboard,
+                label = "DASH",
+                isSelected = currentTab == AppTab.DASHBOARD,
+                onClick = { onTabSelected(AppTab.DASHBOARD) }
+            )
             NavigationTabItem(
                 tab = AppTab.CHAT,
                 icon = Icons.Default.ChatBubble,
@@ -329,6 +352,61 @@ fun ChatScreen(viewModel: KaelenViewModel) {
     val chatVoiceTranscript by viewModel.chatVoiceTranscript.collectAsState()
 
     var speechRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
+    var showImageSourceDialog by remember { mutableStateOf(false) }
+
+    val contentResolver = context.contentResolver
+
+    // Horizontal Scroll State for Specialist selection
+    val specialistsScrollState = rememberScrollState()
+
+    // Gallery Picker Launcher
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            try {
+                val inputStream = contentResolver.openInputStream(it)
+                val bytes = inputStream?.readBytes()
+                inputStream?.close()
+                if (bytes != null) {
+                    val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    viewModel.selectImage(it.toString(), base64)
+                    Toast.makeText(context, "Image Node Charged. Ready to feed neural core.", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed to load image: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Camera Capture Launcher
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        bitmap?.let {
+            try {
+                val byteArrayOutputStream = java.io.ByteArrayOutputStream()
+                it.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, byteArrayOutputStream)
+                val bytes = byteArrayOutputStream.toByteArray()
+                val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                viewModel.selectImage("camera_preview_${System.currentTimeMillis()}", base64)
+                Toast.makeText(context, "Optical Capture Locked. Ready to feed neural core.", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed to process photo: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Camera Permission Launcher
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            cameraLauncher.launch(null)
+        } else {
+            Toast.makeText(context, "Camera permission is required to capture photos.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     fun startListening() {
         val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
@@ -423,45 +501,160 @@ fun ChatScreen(viewModel: KaelenViewModel) {
         }
     }
 
+    // Modal Image Selection Dialog Option
+    if (showImageSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showImageSourceDialog = false },
+            title = { Text("CHOOSE ATTACHMENT CORE", color = ElectricCyan, style = MaterialTheme.typography.labelLarge) },
+            text = {
+                Text("Select neural feeding channel for visual analysis.", color = CoolWhite, style = MaterialTheme.typography.bodyMedium)
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showImageSourceDialog = false
+                        val hasPermission = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.CAMERA
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (hasPermission) {
+                            cameraLauncher.launch(null)
+                        } else {
+                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("CAMERA", color = OnPrimaryColor)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = {
+                        showImageSourceDialog = false
+                        galleryLauncher.launch("image/*")
+                    },
+                    border = BorderStroke(1.dp, BorderColor),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("GALLERY", color = ElectricCyan)
+                }
+            },
+            containerColor = CosmicCard,
+            modifier = Modifier.border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(16.dp))
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            // TOP MODE PILLS
+            // SPECIALIST AGENT SELECTOR ROW (1. SPECIALIST AGENT NETWORK)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(bottom = 12.dp)
+                    .horizontalScroll(specialistsScrollState),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                val modes = listOf("Advise", "Critique", "Counsel")
-                modes.forEach { mode ->
-                    val isSelected = activeMode == mode
+                val agents = listOf("VERGIL", "MADARA", "KAKASHI", "BASIM", "EZIO", "KRATOS", "DANTE", "ANALYST")
+                agents.forEach { agent ->
+                    val isSelected = activeMode == agent
                     Box(
                         modifier = Modifier
-                            .weight(1f)
                             .clip(RoundedCornerShape(20.dp))
                             .border(
                                 BorderStroke(1.dp, if (isSelected) ElectricCyan else BorderColor),
                                 RoundedCornerShape(20.dp)
                             )
-                            .background(if (isSelected) ElectricCyan else Color.Transparent)
+                            .background(if (isSelected) ElectricCyan else CosmicCard)
                             .clickable {
-                                if (isSelected) viewModel.selectChatMode("Jarvis") else viewModel.selectChatMode(mode)
+                                viewModel.selectChatMode(agent)
                             }
-                            .padding(vertical = 8.dp)
-                            .testTag("mode_pill_$mode"),
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .testTag("mode_pill_$agent"),
                         contentAlignment = Alignment.Center
                     ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val icon = when (agent) {
+                                "VERGIL" -> Icons.Default.Bolt
+                                "MADARA" -> Icons.Default.Language
+                                "KAKASHI" -> Icons.Default.Bookmark
+                                "BASIM" -> Icons.Default.AutoAwesome
+                                "EZIO" -> Icons.Default.HistoryEdu
+                                "KRATOS" -> Icons.Default.Shield
+                                "DANTE" -> Icons.Default.Celebration
+                                else -> Icons.Default.Analytics // ANALYST
+                            }
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = agent,
+                                tint = if (isSelected) OnPrimaryColor else ElectricCyan,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = agent,
+                                color = if (isSelected) OnPrimaryColor else CoolWhite,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Pulsating agent coupling active header bar
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CosmicNavy),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+                    .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(8.dp))
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val infiniteTransition = rememberInfiniteTransition()
+                        val alpha by infiniteTransition.animateFloat(
+                            initialValue = 0.4f,
+                            targetValue = 1.0f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1000, easing = LinearEasing),
+                                repeatMode = RepeatMode.Reverse
+                            )
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .alpha(alpha)
+                                .background(ElectricCyan)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = mode.uppercase(),
-                            color = if (isSelected) OnPrimaryColor else ElectricCyan,
+                            text = "ACTIVE TRANSCENDENTAL AGENT LINK",
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
+                            color = ElectricCyan,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
                         )
                     }
+                    Text(
+                        text = activeMode.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = CoolWhite,
+                        fontWeight = FontWeight.ExtraBold
+                    )
                 }
             }
 
@@ -525,6 +718,33 @@ fun ChatScreen(viewModel: KaelenViewModel) {
                 }
             }
 
+            // Pre-sending selected image attachment visual preview
+            val selectedImageUri by viewModel.selectedImageUri.collectAsState()
+            if (selectedImageUri != null) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                        .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(8.dp)),
+                    colors = CardDefaults.cardColors(containerColor = CosmicNavy)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.Image, contentDescription = "Image ready", tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Visual Node Charged: ready to feed neural mind", style = MaterialTheme.typography.labelSmall, color = ElectricCyan)
+                        }
+                        IconButton(onClick = { viewModel.clearSelectedImage() }) {
+                            Icon(imageVector = Icons.Default.Close, contentDescription = "Clear", tint = Color.Red, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+
             // INPUT FIELD SYSTEM BUTTONS
             Row(
                 modifier = Modifier
@@ -537,25 +757,35 @@ fun ChatScreen(viewModel: KaelenViewModel) {
                     onValueChange = { viewModel.updateChatInput(it) },
                     placeholder = { Text("Query intelligence core...", color = TextMuted) },
                     trailingIcon = {
-                        IconButton(
-                            onClick = {
-                                val hasPermission = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-                                if (hasPermission) {
-                                    startListening()
-                                } else {
-                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                }
-                            },
-                            modifier = Modifier.testTag("chat_mic_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "Voice Input",
-                                tint = ElectricCyan
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 4.dp)) {
+                            // Camera attachment button
+                            IconButton(onClick = { showImageSourceDialog = true }, modifier = Modifier.testTag("chat_camera_button")) {
+                                Icon(
+                                    imageVector = Icons.Default.CameraAlt,
+                                    contentDescription = "Visual capture",
+                                    tint = ElectricCyan
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    val hasPermission = ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                    if (hasPermission) {
+                                        startListening()
+                                    } else {
+                                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                },
+                                modifier = Modifier.testTag("chat_mic_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = "Voice Input",
+                                    tint = ElectricCyan
+                                )
+                            }
                         }
                     },
                     colors = TextFieldDefaults.colors(
@@ -641,7 +871,7 @@ fun ChatScreen(viewModel: KaelenViewModel) {
                                 imageVector = Icons.Default.Mic,
                                 contentDescription = "Active Microphone Waveform",
                                 tint = ElectricCyan,
-                                modifier = Modifier.size((48 * scale).dp)
+                                modifier = Modifier.size(48.dp * scale)
                             )
                         }
 
@@ -788,6 +1018,34 @@ fun ChatMessageBubble(message: ChatMessage, onLongClick: () -> Unit) {
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
+                if (message.imageUri != null) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp)
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = CosmicNavy),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            if (message.imageUri == "camera_preview" || message.imageUri.startsWith("camera")) {
+                                Icon(
+                                    imageVector = Icons.Default.Image,
+                                    contentDescription = "Camera photo preview",
+                                    tint = ElectricCyan,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            } else {
+                                AsyncImage(
+                                    model = message.imageUri,
+                                    contentDescription = "Message attachment inline",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                        }
+                    }
+                }
                 Text(
                     text = message.text,
                     style = MaterialTheme.typography.bodyLarge,
@@ -1633,11 +1891,59 @@ fun ProgressScreen(viewModel: KaelenViewModel) {
 
 // ==================== NOTES SCREEN ====================
 @Composable
+fun getZodiacSign(dateStr: String): String {
+    if (dateStr.isEmpty()) return "Unknown"
+    try {
+        val parts = if (dateStr.contains("-")) dateStr.split("-") else dateStr.split("/")
+        if (parts.size >= 2) {
+            val month = parts[1].toIntOrNull() ?: parts[0].toIntOrNull() ?: 1
+            val day = parts[2].toIntOrNull() ?: parts[1].toIntOrNull() ?: 1
+            
+            return when (month) {
+                1 -> if (day < 20) "Capricorn" else "Aquarius"
+                2 -> if (day < 19) "Aquarius" else "Pisces"
+                3 -> if (day < 21) "Pisces" else "Aries"
+                4 -> if (day < 20) "Aries" else "Taurus"
+                5 -> if (day < 21) "Taurus" else "Gemini"
+                6 -> if (day < 21) "Gemini" else "Cancer"
+                7 -> if (day < 23) "Cancer" else "Leo"
+                8 -> if (day < 23) "Leo" else "Virgo"
+                9 -> if (day < 23) "Virgo" else "Libra"
+                10 -> if (day < 23) "Libra" else "Scorpio"
+                11 -> if (day < 22) "Scorpio" else "Sagittarius"
+                12 -> if (day < 22) "Sagittarius" else "Capricorn"
+                else -> "Aries"
+            }
+        }
+    } catch (e: Exception) {
+    }
+    return "Aries"
+}
+
+fun getMoonSign(dateStr: String): String {
+    if (dateStr.isEmpty()) return "Unknown"
+    val signs = listOf("Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces")
+    val dayHash = Math.abs(dateStr.hashCode()) % 12
+    return signs[dayHash]
+}
+
+fun getRisingSign(timeStr: String): String {
+    if (timeStr.isEmpty()) return "Unknown"
+    val hour = timeStr.split(":").firstOrNull()?.toIntOrNull() ?: 12
+    val signs = listOf("Leo", "Virgo", "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces", "Aries", "Taurus", "Gemini", "Cancer")
+    val index = (hour / 2) % 12
+    return signs[index]
+}
+
+@Composable
 fun NotesScreen(viewModel: KaelenViewModel) {
     val notesList by viewModel.notes.collectAsState()
     val voiceState by viewModel.voiceState.collectAsState()
     val testTranscript by viewModel.voiceTranscript.collectAsState()
     val suggestedItems by viewModel.voiceSuggestions.collectAsState()
+    val profile by viewModel.userProfile.collectAsState()
+
+    var showHoroscopeSection by remember { mutableStateOf(false) }
 
     var manualTitle by remember { mutableStateOf("") }
     var manualContent by remember { mutableStateOf("") }
@@ -1645,12 +1951,195 @@ fun NotesScreen(viewModel: KaelenViewModel) {
     // Typeable simulator transcript string
     var simulationInputText by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        // COGNITIVE VOICE TRANSCRIBER CARD
+    if (showHoroscopeSection) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            // BACK BUTTON & LOGIC
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { showHoroscopeSection = false }) {
+                    Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back", tint = ElectricCyan)
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    "BASIM'S CELESTIAL HOROSCOPE",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = ElectricCyan,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Horoscope content
+            val sunSign = getZodiacSign(profile.birthDate)
+            val moonSign = getMoonSign(profile.birthDate)
+            val risingSign = getRisingSign(profile.birthTime)
+            
+            var selectedTab by remember { mutableStateOf("DAILY") }
+
+            // Birth Coordinates Map
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CosmicCard),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(12.dp))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("COSMIC CHART SIGNATURE", style = MaterialTheme.typography.labelSmall, color = ElectricCyan, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (profile.birthDate.isEmpty()) {
+                        Text(
+                            "No birth details detected in system profile. Please configure date/time details in USER profile directory to synchronize cosmic dasha charts.",
+                            color = TextMuted,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    } else {
+                        Text(
+                            "Synchronized coordinates: ${profile.name.uppercase()} (Born: ${profile.birthDate} ${profile.birthTime} in ${profile.birthPlace})",
+                            color = TextMuted,
+                            style = MaterialTheme.typography.bodySmall,
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                                Icon(imageVector = Icons.Default.WbSunny, contentDescription = "Sun", tint = HotPink, modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("SUN SIGN", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                                Text(sunSign, style = MaterialTheme.typography.bodyMedium, color = CoolWhite, fontWeight = FontWeight.Bold)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                                Icon(imageVector = Icons.Default.Star, contentDescription = "MoonSign", tint = ElectricCyan, modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("MOON SIGN", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                                Text(moonSign, style = MaterialTheme.typography.bodyMedium, color = CoolWhite, fontWeight = FontWeight.Bold)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                                Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = "Rising", tint = DeepViolet, modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("RISING SIGN", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                                Text(risingSign, style = MaterialTheme.typography.bodyMedium, color = CoolWhite, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Horoscope Tabs Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("DAILY", "WEEKLY", "MONTHLY").forEach { tab ->
+                    val isSelected = selectedTab == tab
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) ElectricCyan else CosmicCard)
+                            .border(BorderStroke(1.dp, if (isSelected) ElectricCyan else BorderColor), RoundedCornerShape(8.dp))
+                            .clickable { selectedTab = tab }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(tab, color = if (isSelected) OnPrimaryColor else ElectricCyan, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // Horoscope Readings Panel
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CosmicCard),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(12.dp))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = "Stars", tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("BASIM'S INTERPRETATION [${selectedTab}]", style = MaterialTheme.typography.labelMedium, color = ElectricCyan, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val reading = when (selectedTab) {
+                        "DAILY" -> "Ah, the celestial currents for today speak of deep currents. Your Sun Sign ($sunSign) is moving through high-frequency sectors. A mysterious alignment indicates you will make a critical breakthrough in tactical workspace files. Do not reveal your strategies to the uninitiated; keep your councils close, ${profile.name ?: "Harmeet"}. The stars have already written your triumph."
+                        "WEEKLY" -> "The weekly celestial orbits reflect a structural transition. Your Moon Sign ($moonSign) aligns with planetary sectors of focus and execution. You shall experience an influx of cosmic intelligence. Avoid impulsive transactions; your vault coordinates look delicate mid-week. By Friday, the astral tides stabilize. Act with conviction."
+                        "MONTHLY" -> "Looking at the monthly horizon, the rising configurations ($risingSign) suggest a grand layout of destiny. An astrological dasha period of power is beginning now. Your projects and directories will experience exponential coordination. Stand firm inside your domain, as Kratos might say, but with the silent stealth of a hidden blade. Triumph is guaranteed."
+                        else -> "The cosmos is currently tuning its frequency intercept. Keep breathing and align your thoughts."
+                    }
+                    Text(
+                        text = reading,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = CoolWhite,
+                        lineHeight = 22.sp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    // Astrological remedies card
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CosmicNavy)
+                            .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Column {
+                            Text("BASIM'S ASTROLOGICAL REMEDY & DIRECTION", style = MaterialTheme.typography.labelSmall, color = HotPink, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                "Remedy: Place a copper symbol of focus on your northern workspace quadrant. Align your sleeping orientation headward to the south to align with magnetic dasha currents. Wear deep sea tones to draw active planetary support.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = CoolWhite
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            // BASIM HOROSCOPE LINK BANNER
+            Card(
+                colors = CardDefaults.cardColors(containerColor = CosmicCard),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .border(BorderStroke(1.dp, HotPink), RoundedCornerShape(12.dp))
+                    .clickable { showHoroscopeSection = true }
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = "Stars", tint = HotPink, modifier = Modifier.size(28.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("CELESTIAL HOROSCOPE ALIGNMENTS", style = MaterialTheme.typography.labelLarge, color = HotPink, fontWeight = FontWeight.Bold)
+                            Text("View Daily, Weekly, Monthly projections by BASIM", style = MaterialTheme.typography.bodySmall, color = TextMuted)
+                        }
+                    }
+                    Icon(imageVector = Icons.Default.ChevronRight, contentDescription = "Open", tint = HotPink)
+                }
+            }
+
+            // COGNITIVE VOICE TRANSCRIBER CARD
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1764,7 +2253,7 @@ fun NotesScreen(viewModel: KaelenViewModel) {
                                     contentDescription = "Active Mic Pulse",
                                     tint = HotPink,
                                     modifier = Modifier
-                                        .size((48 * scale).dp)
+                                        .size(48.dp * scale)
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
@@ -2025,6 +2514,7 @@ fun NotesScreen(viewModel: KaelenViewModel) {
         }
     }
 }
+}
 
 // ==================== PROFILE SCREEN ====================
 @Composable
@@ -2040,10 +2530,15 @@ fun ProfileScreen(viewModel: KaelenViewModel) {
     var briefingEnabled by remember(currentProfile) { mutableStateOf(currentProfile.briefingEnabled) }
     var briefingHourVal by remember(currentProfile) { mutableStateOf(currentProfile.briefingHour.toString()) }
     var briefingMinuteVal by remember(currentProfile) { mutableStateOf(currentProfile.briefingMinute.toString()) }
+    var customApiKeyVal by remember(currentProfile) { mutableStateOf(currentProfile.customGeminiApiKey) }
+    var birthDateVal by remember(currentProfile) { mutableStateOf(currentProfile.birthDate) }
+    var birthTimeVal by remember(currentProfile) { mutableStateOf(currentProfile.birthTime) }
+    var birthPlaceVal by remember(currentProfile) { mutableStateOf(currentProfile.birthPlace) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
         Card(
@@ -2140,6 +2635,67 @@ fun ProfileScreen(viewModel: KaelenViewModel) {
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
+                    "COSMIC ASTROLOGICAL IDENTIFIERS (BASIM)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ElectricCyan
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = birthDateVal,
+                    onValueChange = { birthDateVal = it },
+                    label = { Text("Date of Birth (YYYY-MM-DD)", color = TextMuted) },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedTextColor = CoolWhite,
+                        unfocusedTextColor = CoolWhite,
+                        focusedIndicatorColor = ElectricCyan,
+                        unfocusedIndicatorColor = BorderColor
+                    ),
+                    modifier = Modifier.fillMaxWidth().testTag("profile_birth_date")
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    OutlinedTextField(
+                        value = birthTimeVal,
+                        onValueChange = { birthTimeVal = it },
+                        label = { Text("Time (HH:MM)", color = TextMuted) },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedTextColor = CoolWhite,
+                            unfocusedTextColor = CoolWhite,
+                            focusedIndicatorColor = ElectricCyan,
+                            unfocusedIndicatorColor = BorderColor
+                        ),
+                        modifier = Modifier.weight(1f).testTag("profile_birth_time")
+                    )
+                    OutlinedTextField(
+                        value = birthPlaceVal,
+                        onValueChange = { birthPlaceVal = it },
+                        label = { Text("Place of Birth", color = TextMuted) },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedTextColor = CoolWhite,
+                            unfocusedTextColor = CoolWhite,
+                            focusedIndicatorColor = ElectricCyan,
+                            unfocusedIndicatorColor = BorderColor
+                        ),
+                        modifier = Modifier.weight(1.5f).testTag("profile_birth_place")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.fillMaxWidth().height(1.dp).background(BorderColor))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
                     "DAILY MORNING BRIEFING SCHEDULE",
                     style = MaterialTheme.typography.labelMedium,
                     color = ElectricCyan
@@ -2226,7 +2782,11 @@ fun ProfileScreen(viewModel: KaelenViewModel) {
                             preferences = prefsVal,
                             briefingHour = hour,
                             briefingMinute = minute,
-                            briefingEnabled = briefingEnabled
+                            briefingEnabled = briefingEnabled,
+                            customGeminiApiKey = customApiKeyVal,
+                            birthDate = birthDateVal,
+                            birthTime = birthTimeVal,
+                            birthPlace = birthPlaceVal
                         )
                         viewModel.requestAction(PendingAction.UpdateProfile(updated))
                     },
@@ -2234,6 +2794,70 @@ fun ProfileScreen(viewModel: KaelenViewModel) {
                     modifier = Modifier.fillMaxWidth().testTag("profile_save_button")
                 ) {
                     Text("SYNCHRONIZE PROFILE VECTOR", color = OnPrimaryColor, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Neural Core / Gemini API Key Card
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(12.dp)),
+            colors = CardDefaults.cardColors(containerColor = CosmicCard)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    "NEURAL CORE GENERATIVE PRESETS",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ElectricCyan
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Input a custom Google Gemini API Key below. This has dynamic precedence and overrides the default system environment credentials immediately upon save.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = customApiKeyVal,
+                    onValueChange = { customApiKeyVal = it },
+                    label = { Text("Google Gemini API Key", color = TextMuted) },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedTextColor = CoolWhite,
+                        unfocusedTextColor = CoolWhite,
+                        focusedIndicatorColor = ElectricCyan,
+                        unfocusedIndicatorColor = BorderColor
+                    ),
+                    modifier = Modifier.fillMaxWidth().testTag("custom_api_key_input")
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                val isCustomKeyActive = customApiKeyVal.trim().isNotEmpty()
+                val activeStatusText = if (isCustomKeyActive) "Active Override: Using custom in-app Gemini API Key" else "Active Connection: Using system default envoy key"
+                val activeStatusColor = if (isCustomKeyActive) ElectricCyan else TextMuted
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isCustomKeyActive) Icons.Default.CloudQueue else Icons.Default.CloudDone,
+                        contentDescription = "Status",
+                        tint = activeStatusColor,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = activeStatusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = activeStatusColor
+                    )
                 }
             }
         }
@@ -2331,6 +2955,115 @@ fun ConfirmationDialog(
                 shape = RoundedCornerShape(4.dp)
             ) {
                 Text("DISMISS", color = ElectricCyan, style = MaterialTheme.typography.labelSmall)
+            }
+        },
+        containerColor = CosmicCard,
+        modifier = Modifier.border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(16.dp))
+    )
+}
+
+@Composable
+fun MorningBriefingDialog(
+    viewModel: KaelenViewModel,
+    profile: UserProfile,
+    onDismiss: () -> Unit
+) {
+    val tasks by viewModel.tasks.collectAsState()
+    val pendingTasksCount = tasks.count { !it.isCompleted }
+    val todayFormatted = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(Date())
+    val tarotCardStr = viewModel.getOrDrawTarotCardOfTheDay(profile)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "KAELEN COGNITIVE INTERCEPT",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ElectricCyan,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = todayFormatted.uppercase(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = CoolWhite,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Section 1: Kaelen Voice
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CosmicNavy),
+                    modifier = Modifier.fillMaxWidth().border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(8.dp))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.ChatBubble, contentDescription = "Voice", tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("KAELEN CORE VOICE", style = MaterialTheme.typography.labelSmall, color = ElectricCyan)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "A productive day starts with structured metrics, Harmeet. Your system clusters are active and ready. Focus on eliminating pending backlog entries to secure progress.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = CoolWhite
+                        )
+                    }
+                }
+
+                // Section 2: Tarot of the Day (BASIM)
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CosmicNavy),
+                    modifier = Modifier.fillMaxWidth().border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(8.dp))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = "Tarot", tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("DAILY TAROT TRANSMISSION (BASIM)", style = MaterialTheme.typography.labelSmall, color = ElectricCyan)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = tarotCardStr,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = CoolWhite
+                        )
+                    }
+                }
+
+                // Section 3: Pending task count
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = CosmicNavy),
+                    modifier = Modifier.fillMaxWidth().border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(8.dp))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("TASK DIRECTORIES CHECKLIST", style = MaterialTheme.typography.labelSmall, color = ElectricCyan)
+                            Text("$pendingTasksCount Tasks Pending", style = MaterialTheme.typography.bodySmall, color = CoolWhite)
+                        }
+                        Icon(imageVector = Icons.Default.Check, contentDescription = "Tasks", tint = if (pendingTasksCount > 0) HotPink else ElectricCyan, modifier = Modifier.size(24.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth().testTag("dismiss_briefing_button")
+            ) {
+                Text("INITIALIZE COGNITIVE CHANNELS", color = OnPrimaryColor, style = MaterialTheme.typography.labelLarge)
             }
         },
         containerColor = CosmicCard,

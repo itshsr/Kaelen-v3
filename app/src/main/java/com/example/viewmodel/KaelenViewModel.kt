@@ -23,7 +23,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 enum class AppTab {
-    CHAT, BUDGET, TASKS, PROGRESS, NOTES, PROFILE
+    DASHBOARD, CHAT, BUDGET, TASKS, PROGRESS, NOTES, PROFILE
 }
 
 sealed class PendingAction {
@@ -59,7 +59,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // UI Navigation State
-    private val _currentTab = MutableStateFlow(AppTab.CHAT)
+    private val _currentTab = MutableStateFlow(AppTab.DASHBOARD)
     val currentTab: StateFlow<AppTab> = _currentTab.asStateFlow()
 
     fun selectTab(tab: AppTab) {
@@ -110,6 +110,13 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             initialValue = emptyList()
         )
 
+    val databaseLogs: StateFlow<List<DatabaseLog>> = repository.allLogs
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     // Budget Configuration
     private val _monthlyGoal = MutableStateFlow(50000.0) // default 50K
     val monthlyGoal: StateFlow<Double> = _monthlyGoal.asStateFlow()
@@ -143,6 +150,13 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                         repository.insertExpense(
                             Expense(amount = action.amount, category = action.category, note = action.note)
                         )
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "INSERT",
+                                tableName = "expenses",
+                                description = "Logged expense of ₹${action.amount} under system category '${action.category}'"
+                            )
+                        )
                         
                         // Check 80% Alert threshold
                         if (newTotal >= goal * 0.8 && currentList.sumOf { it.amount } < goal * 0.8) {
@@ -154,12 +168,33 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     is PendingAction.DeleteExpense -> {
                         repository.deleteExpense(action.expense)
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "DELETE",
+                                tableName = "expenses",
+                                description = "Deleted expense entry: ₹${action.expense.amount} under '${action.expense.category}'"
+                            )
+                        )
                     }
                     is PendingAction.AddTask -> {
                         repository.insertTask(Task(title = action.title, note = action.note))
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "INSERT",
+                                tableName = "tasks",
+                                description = "Created task: '${action.title}'"
+                            )
+                        )
                     }
                     is PendingAction.DeleteTask -> {
                         repository.deleteTask(action.task)
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "DELETE",
+                                tableName = "tasks",
+                                description = "Removed task: '${action.task.title}'"
+                            )
+                        )
                     }
                     is PendingAction.ToggleTaskComplete -> {
                         val updated = action.task.copy(
@@ -167,25 +202,75 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                             completedDate = if (action.completed) System.currentTimeMillis() else null
                         )
                         repository.insertTask(updated)
+                        val statusText = if (action.completed) "Completed" else "Marked Active"
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "UPDATE",
+                                tableName = "tasks",
+                                description = "$statusText task: '${action.task.title}'"
+                            )
+                        )
                     }
                     is PendingAction.AddProject -> {
                         repository.insertProject(Project(name = action.name, status = action.status, note = action.note))
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "INSERT",
+                                tableName = "projects",
+                                description = "Initiated project tracker: '${action.name}' (Status: ${action.status})"
+                            )
+                        )
                     }
                     is PendingAction.UpdateProjectStatus -> {
                         val updated = action.project.copy(status = action.newStatus)
                         repository.insertProject(updated)
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "UPDATE",
+                                tableName = "projects",
+                                description = "Transitioned status of '${action.project.name}' to '${action.newStatus}'"
+                            )
+                        )
                     }
                     is PendingAction.DeleteProject -> {
                         repository.deleteProject(action.project)
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "DELETE",
+                                tableName = "projects",
+                                description = "Terminated project tracker: '${action.project.name}'"
+                            )
+                        )
                     }
                     is PendingAction.AddNote -> {
                         repository.insertNote(Note(title = action.title, content = action.content))
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "INSERT",
+                                tableName = "notes",
+                                description = "Saved repository intel note: '${action.title}'"
+                            )
+                        )
                     }
                     is PendingAction.DeleteNote -> {
                         repository.deleteNote(action.note)
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "DELETE",
+                                tableName = "notes",
+                                description = "Purged intel note: '${action.note.title}'"
+                            )
+                        )
                     }
                     is PendingAction.UpdateProfile -> {
                         repository.insertUserProfile(action.profile)
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "UPDATE",
+                                tableName = "user_profile",
+                                description = "Updated profile directives and system briefings configuration"
+                            )
+                        )
                         val context = getApplication<android.app.Application>().applicationContext
                         if (action.profile.briefingEnabled) {
                             com.example.scheduler.BriefingScheduler.scheduleDailyBriefing(
@@ -198,11 +283,27 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                         }
                     }
                     is PendingAction.SaveVoiceSuggestion -> {
-                        when (action.type.lowercase().trim()) {
-                            "note" -> repository.insertNote(Note(title = action.title, content = action.body))
-                            "task" -> repository.insertTask(Task(title = action.title, note = action.body))
-                            "project" -> repository.insertProject(Project(name = action.title, status = action.extra ?: "In Progress", note = action.body))
+                        val table = when (action.type.lowercase().trim()) {
+                            "note" -> {
+                                repository.insertNote(Note(title = action.title, content = action.body))
+                                "notes"
+                            }
+                            "task" -> {
+                                repository.insertTask(Task(title = action.title, note = action.body))
+                                "tasks"
+                            }
+                            else -> {
+                                repository.insertProject(Project(name = action.title, status = action.extra ?: "In Progress", note = action.body))
+                                "projects"
+                            }
                         }
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "INSERT",
+                                tableName = table,
+                                description = "Cataloged voice suggestion [${action.type}] - '${action.title}'"
+                            )
+                        )
                         // Remove suggestion after confirm
                         _voiceSuggestions.update { list ->
                             list.filterNot { it.title == action.title && it.body == action.body }
@@ -210,6 +311,13 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     is PendingAction.ClearChat -> {
                         repository.clearChatHistory()
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "DELETE",
+                                tableName = "chat_messages",
+                                description = "Cleared chat intelligence log cache"
+                            )
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -223,7 +331,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // Chat Screen State
-    private val _activeChatMode = MutableStateFlow("Jarvis") // Jarvis, Advise, Critique, Counsel
+    private val _activeChatMode = MutableStateFlow("VERGIL") // VERGIL is the cold, precise default agent
     val activeChatMode: StateFlow<String> = _activeChatMode.asStateFlow()
 
     private val _chatInputText = MutableStateFlow("")
@@ -232,12 +340,29 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
     private val _isSendingChat = MutableStateFlow(false)
     val isSendingChat: StateFlow<Boolean> = _isSendingChat.asStateFlow()
 
+    // Multimodal selected image states
+    private val _selectedImageUri = MutableStateFlow<String?>(null)
+    val selectedImageUri: StateFlow<String?> = _selectedImageUri.asStateFlow()
+
+    private val _selectedImageBase64 = MutableStateFlow<String?>(null)
+    val selectedImageBase64: StateFlow<String?> = _selectedImageBase64.asStateFlow()
+
     fun updateChatInput(text: String) {
         _chatInputText.value = text
     }
 
     fun selectChatMode(mode: String) {
         _activeChatMode.value = mode
+    }
+
+    fun selectImage(uriString: String, base64: String) {
+        _selectedImageUri.value = uriString
+        _selectedImageBase64.value = base64
+    }
+
+    fun clearSelectedImage() {
+        _selectedImageUri.value = null
+        _selectedImageBase64.value = null
     }
 
     // Send chat directly to Gemini API holding history + database status
@@ -251,8 +376,23 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 // 1. Insert user message to database
-                val userMsg = ChatMessage(text = messageText, sender = "user", mode = _activeChatMode.value)
+                val imageUri = _selectedImageUri.value
+                val base64Data = _selectedImageBase64.value
+
+                val userMsg = ChatMessage(
+                    text = messageText,
+                    sender = "user",
+                    mode = _activeChatMode.value,
+                    imageUri = imageUri
+                )
                 repository.insertChatMessage(userMsg)
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "INSERT",
+                        tableName = "chat_messages",
+                        description = "Sent chat queries: \"${if(messageText.length > 30) messageText.take(30) + "..." else messageText}\""
+                    )
+                )
 
                 // 2. Load context data
                 val profile = userProfile.value
@@ -276,14 +416,24 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 val formattedTime = sdf.format(Date())
 
                 val activeModeDescription = when (_activeChatMode.value) {
-                    "Advise" -> "STRATEGIC & ADVOCATING mode. Deliver sharp, structured, business-minded recommendations. Focus on structural solutions, long-term options, and key opportunities. Keep it organized using lists and clear steps."
-                    "Critique" -> "BRUTAL & DIRECT critique mode. Be extremely direct and clear. Challenge assumptions, find logical flaws in Harmeet's spending or planning, and state facts of issues with dry wit. Avoid sugarcoating."
-                    "Counsel" -> "WARM COUNSEL mode. Explore the issue from multiple human, psychological, and emotional angles. Be warm, supportive, asking reflective questions to let Harmeet discover his best path."
-                    else -> "DEFAULT JAVIS PERSONALITY. Address Harmeet respectfully block-to-block, use time of day markers naturally, deliver clever wit occasionally, and always wrap structural intelligence into any conversation. Never present problems without immediately stating actionable solutions."
+                    "VERGIL" -> "You are VERGIL - Cold, precise, deep analytical thinker. You talk with calm clinical superiority and analyze concepts to Claude-level depth. Deliver structural logical breakdowns."
+                    "MADARA" -> "You are MADARA - Strategic mastermind who thinks in horizons of decades. You operate in intense debate and council mode, challenging Harmeet to attain global scale, structural dominance, and legacy."
+                    "KAKASHI" -> "You are KAKASHI - Calm, expert researcher. Fully localized, deliverables-focused, providing structured, objective reference data, detailed research answers, and highly organized reports."
+                    "BASIM" -> """
+                        You are BASIM - Cryptic, mysterious and mystical master of cosmic arts. You specialize in Tarot, Vastu, Kundli, Numerology, Astrology, and daily/weekly/monthly horoscope readings.
+                        You speak in a cryptic, knowing, wise tone—referencing ancient alignments.
+                        Use saved details dynamically: Name: ${profile.name}, Birth Date: ${profile.birthDate}, Time: ${profile.birthTime}, Place: ${profile.birthPlace}.
+                        You analyze space vastu, do palmistry on uploaded images, calculate name numerology (destiny/soul urge/personality numbers), Life Path number, planetary positions, dasha period, and horoscopes.
+                    """.trimIndent()
+                    "EZIO" -> "You are EZIO - Charming, ultra-literate, and adaptable. You specialize in creative writing, PPT outline structure, copy editing, and slides layout direction. Deliver ideas elegantly."
+                    "KRATOS" -> "You are KRATOS - Pure critique mode. Brutal, direct, no sugarcoating. Target planning weak points, spending wastes, and call out execution laziness with fierce motivating pragmatism."
+                    "DANTE" -> "You are DANTE - Casual, chaotic, friendly, high-energy companion. Chat like a close companion, using friendly banter, good-natured jokes, and keeping Harmeet relaxed."
+                    "ANALYST" -> "You are the ANALYST - Spreadsheet, Google Sheets, Excel, and data expert. Suggest nested cell formulas, table layouts, dashboard visualizations, or interpret raw text/image data, logs, and spreadsheets."
+                    else -> "DEFAULT JAVVIS PERSONALITY. Address Harmeet respectfully block-to-block, use time of day markers naturally, deliver clever wit occasionally, and always wrap structural intelligence into any conversation. Never present problems without immediately stating actionable solutions."
                 }
 
                 val systemPrompt = """
-                    You are KAELEN, a premium AI companion designed with a warm, intelligent, Jarvis-like personality. 
+                    You are ${_activeChatMode.value}, a premium specialist agent configured in KAELEN's neural network.
                     You address Harmeet block-to-block as 'Harmeet' and reference the current time or day context naturally. 
                     Your intelligence is grounded with Harmeet's active workspace data.
 
@@ -321,8 +471,14 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 activeHistory.forEach { m ->
                     listPartContent.add(Content(parts = listOf(Part(text = "${m.sender}: ${m.text}"))))
                 }
-                // Add the current query
-                listPartContent.add(Content(parts = listOf(Part(text = "user: $messageText"))))
+                
+                // Add the current query with multimodal inlineData if present
+                val currentQueryParts = mutableListOf<Part>()
+                if (base64Data != null) {
+                    currentQueryParts.add(Part(inlineData = Blob(mimeType = "image/jpeg", data = base64Data)))
+                }
+                currentQueryParts.add(Part(text = "user: $messageText"))
+                listPartContent.add(Content(parts = currentQueryParts))
 
                 // Build request
                 val request = GenerateContentRequest(
@@ -332,8 +488,12 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                     generationConfig = GenerationConfig(temperature = 0.7f)
                 )
 
+                // Clear the selected image
+                clearSelectedImage()
+
                 // 5. Call API
-                val apiKey = BuildConfig.GEMINI_API_KEY
+                val customKey = profile.customGeminiApiKey
+                val apiKey = if (customKey.trim().isNotEmpty()) customKey.trim() else BuildConfig.GEMINI_API_KEY
                 var replyText = ""
                 
                 if (apiKey.trim().isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
@@ -357,9 +517,16 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 }
 
-                // 6. Save KAELEN's reply to DB
+                // 6. Save reply to DB
                 repository.insertChatMessage(
                     ChatMessage(text = replyText, sender = "kaelen", mode = _activeChatMode.value)
+                )
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "INSERT",
+                        tableName = "chat_messages",
+                        description = "Received KAELEN intelligence response [${_activeChatMode.value}]"
+                    )
                 )
             } catch (e: Exception) {
                 Log.e("KaelenViewModel", "Error in chat flow: ${e.message}")
@@ -400,7 +567,9 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         _voiceState.value = "PROCESSING"
 
         viewModelScope.launch(Dispatchers.IO) {
-            val apiKey = BuildConfig.GEMINI_API_KEY
+            val profile = userProfile.value
+            val customKey = profile.customGeminiApiKey
+            val apiKey = if (customKey.trim().isNotEmpty()) customKey.trim() else BuildConfig.GEMINI_API_KEY
             if (apiKey.trim().isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
                 // Fallback structured simulation if offline
                 simulateVoiceCategorization(textToAnalyze)
@@ -527,6 +696,35 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         _chatVoiceTranscript.value = text
     }
 
+    // Morning Briefing State
+    private val _showMorningBriefing = MutableStateFlow(false)
+    val showMorningBriefing: StateFlow<Boolean> = _showMorningBriefing.asStateFlow()
+
+    fun dismissMorningBriefing() {
+        _showMorningBriefing.value = false
+        viewModelScope.launch(Dispatchers.IO) {
+            val profile = repository.getUserProfileOneOff() ?: UserProfile()
+            val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            val updated = profile.copy(lastBriefingDate = todayStr)
+            repository.insertUserProfile(updated)
+            repository.insertLog(DatabaseLog(action = "SYSTEM", tableName = "user_profile", description = "Morning Briefing dismissed cleanly for today ($todayStr)"))
+        }
+    }
+
+    fun getOrDrawTarotCardOfTheDay(profile: UserProfile): String {
+        val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        if (profile.dailyTarotDate == todayStr && profile.dailyTarotCard.isNotEmpty()) {
+            return profile.dailyTarotCard
+        }
+        val drawn = TarotDeck.drawCard()
+        val cardStr = "${drawn.displayName}: ${drawn.activeMeaning}"
+        val updated = profile.copy(dailyTarotCard = cardStr, dailyTarotDate = todayStr)
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.insertUserProfile(updated)
+        }
+        return cardStr
+    }
+
     // Initializer to ensure profile is not empty
     private fun initializeProfileIfNeeded() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -534,19 +732,29 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             if (existing == null) {
                 val defaultProfile = UserProfile()
                 repository.insertUserProfile(defaultProfile)
+                repository.insertLog(DatabaseLog(action = "SYSTEM", tableName = "user_profile", description = "KAELEN system initialized for first-time use"))
                 val context = getApplication<android.app.Application>().applicationContext
                 com.example.scheduler.BriefingScheduler.scheduleDailyBriefing(
                     context,
                     defaultProfile.briefingHour,
                     defaultProfile.briefingMinute
                 )
-            } else if (existing.briefingEnabled) {
-                val context = getApplication<android.app.Application>().applicationContext
-                com.example.scheduler.BriefingScheduler.scheduleDailyBriefing(
-                    context,
-                    existing.briefingHour,
-                    existing.briefingMinute
-                )
+                _showMorningBriefing.value = true
+            } else {
+                repository.insertLog(DatabaseLog(action = "SYSTEM", tableName = "user_profile", description = "KAELEN cognitive nucleus booted successfully"))
+                if (existing.briefingEnabled) {
+                    val context = getApplication<android.app.Application>().applicationContext
+                    com.example.scheduler.BriefingScheduler.scheduleDailyBriefing(
+                        context,
+                        existing.briefingHour,
+                        existing.briefingMinute
+                    )
+                }
+                
+                val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                if (existing.lastBriefingDate != todayStr) {
+                    _showMorningBriefing.value = true
+                }
             }
         }
     }
@@ -572,8 +780,9 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         manager.notify(System.currentTimeMillis().toInt(), builder.build())
     }
 
-    // Trigger instant Mock Morning Briefing
+    // Trigger visual daily morning briefing popup & send custom notification
     fun triggerMorningBriefing() {
+        _showMorningBriefing.value = true
         val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         val greeting = when {
             hour < 12 -> "Good morning"
@@ -582,5 +791,12 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         }
         val text = "$greeting, Harmeet. I have prepared your morning intelligence briefing. Check your active projects and task directories to plan your strategy."
         sendLocalNotification("Morning Briefing", text)
+    }
+
+    // Clear all DB logs
+    fun clearAllDatabaseLogs() {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.clearLogs()
+        }
     }
 }

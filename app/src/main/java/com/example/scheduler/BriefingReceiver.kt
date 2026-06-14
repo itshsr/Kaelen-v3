@@ -76,7 +76,8 @@ class BriefingReceiver : BroadcastReceiver() {
                     var briefingMessage = localOutlookSummary
 
                     // Try to fetch personalized summary from Gemini if key is registered
-                    val apiKey = BuildConfig.GEMINI_API_KEY
+                    val customKey = profile.customGeminiApiKey
+                    val apiKey = if (customKey.trim().isNotEmpty()) customKey.trim() else BuildConfig.GEMINI_API_KEY
                     if (apiKey.isNotEmpty() && apiKey != "MY_GEMINI_API_KEY" && apiKey.trim().isNotBlank()) {
                         try {
                             val systemPrompt = "You are KAELEN, an elite, deeply analytical workspace advisor. You provide short, high-priority morning briefings under 100 words. Summarize the user's focus, pending tasks, and budget metrics with direct, motivating, system-driven guidance."

@@ -9,5 +9,6 @@ data class ChatMessage(
     val text: String,
     val sender: String, // "user", "kaelen"
     val timestamp: Long = System.currentTimeMillis(),
-    val mode: String = "Jarvis" // "Advise", "Critique", "Counsel" or "Jarvis"
+    val mode: String = "Jarvis", // "Advise", "Critique", "Counsel" or "Jarvis"
+    val imageUri: String? = null
 )

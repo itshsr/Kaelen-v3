@@ -77,4 +77,14 @@ interface AppDao {
 
     @Query("DELETE FROM chat_messages")
     suspend fun clearChatHistory()
+
+    // Database Logs
+    @Query("SELECT * FROM database_logs ORDER BY timestamp DESC")
+    fun getAllLogs(): Flow<List<DatabaseLog>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLog(log: DatabaseLog)
+
+    @Query("DELETE FROM database_logs")
+    suspend fun clearAllLogs()
 }

@@ -13,5 +13,12 @@ data class UserProfile(
     val preferences: String = "Witty, structured guidance, deeply analytical. Prefers high contrast visual layouts.",
     val briefingHour: Int = 8,
     val briefingMinute: Int = 30,
-    val briefingEnabled: Boolean = true
+    val briefingEnabled: Boolean = true,
+    val customGeminiApiKey: String = "",
+    val birthDate: String = "1995-11-20",
+    val birthTime: String = "08:15",
+    val birthPlace: String = "New Delhi, India",
+    val dailyTarotCard: String = "",
+    val dailyTarotDate: String = "",
+    val lastBriefingDate: String = ""
 )

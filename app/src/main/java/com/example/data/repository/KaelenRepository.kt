@@ -38,4 +38,9 @@ class KaelenRepository(private val appDao: AppDao) {
     val allChatMessages: Flow<List<ChatMessage>> = appDao.getAllChatMessages()
     suspend fun insertChatMessage(message: ChatMessage) = appDao.insertChatMessage(message)
     suspend fun clearChatHistory() = appDao.clearChatHistory()
+
+    // Database Logs
+    val allLogs: Flow<List<DatabaseLog>> = appDao.getAllLogs()
+    suspend fun insertLog(log: DatabaseLog) = appDao.insertLog(log)
+    suspend fun clearLogs() = appDao.clearAllLogs()
 }

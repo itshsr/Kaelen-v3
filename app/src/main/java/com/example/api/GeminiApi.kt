@@ -22,8 +22,14 @@ data class Content(
     val parts: List<Part>
 )
 
+data class Blob(
+    val mimeType: String,
+    val data: String
+)
+
 data class Part(
-    val text: String? = null
+    val text: String? = null,
+    val inlineData: Blob? = null
 )
 
 data class GenerationConfig(
