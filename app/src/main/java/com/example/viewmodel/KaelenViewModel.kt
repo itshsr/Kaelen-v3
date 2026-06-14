@@ -72,7 +72,6 @@ data class Ebook(
 class KaelenViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: KaelenRepository = KaelenRepository(KaelenDatabase.getDatabase(application).appDao)
-    private val prefs: SharedPreferences = application.getSharedPreferences("kaelen_shared_prefs", Context.MODE_PRIVATE)
 
     // UI Navigation State - default landing screen is HOME as requested
     private val _currentTab = MutableStateFlow(AppTab.HOME)
