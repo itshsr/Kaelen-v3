@@ -20,17 +20,14 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
 
-      - name: Download Gradle Wrapper JAR
-        run: |
-          mkdir -p gradle/wrapper
-          curl -L -o gradle/wrapper/gradle-8.9-bin.zip \
-            https://services.gradle.org/distributions/gradle-8.9-bin.zip
-          cd gradle/wrapper
-          unzip -l gradle-8.9-bin.zip | grep "wrapper.jar"
-          unzip -j gradle-8.9-bin.zip "*gradle-wrapper.jar" -d .
-          rm gradle-8.9-bin.zip
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate Gradle Wrapper
+        run: gradle wrapper --gradle-version 8.9 --distribution-type bin
 
       - name: Initialize Environment Variables
         run: touch .env
