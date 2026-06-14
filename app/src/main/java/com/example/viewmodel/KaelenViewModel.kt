@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -18,12 +19,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
 
 enum class AppTab {
-    DASHBOARD, CHAT, BUDGET, TASKS, PROGRESS, NOTES, PROFILE
+    HOME, CORE, FORGE, ORACLE, GRIMOIRE, VAULT, USER
 }
 
 sealed class PendingAction {
@@ -49,17 +51,31 @@ data class VoiceSuggestion(
     val extra: String? = null // status for project, etc.
 )
 
+data class Habit(
+    val name: String,
+    val completedDates: Set<String>, // "YYYY-MM-DD"
+    val streak: Int = 0
+)
+
+data class Ebook(
+    val title: String,
+    val format: String = "EPUB",
+    val progress: Int = 0, // percentage 0-100
+    val lastReadPosition: Int = 1,
+    val totalPages: Int = 300,
+    val bookmarks: List<Int> = emptyList(),
+    val highlights: List<String> = emptyList(),
+    val author: String = "Unknown Author",
+    val coverIcon: String = "📖"
+)
+
 class KaelenViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: KaelenRepository
-    init {
-        val database = KaelenDatabase.getDatabase(application)
-        repository = KaelenRepository(database.appDao)
-        initializeProfileIfNeeded()
-    }
+    private val repository: KaelenRepository = KaelenRepository(KaelenDatabase.getDatabase(application).appDao)
+    private val prefs: SharedPreferences = application.getSharedPreferences("kaelen_shared_prefs", Context.MODE_PRIVATE)
 
-    // UI Navigation State
-    private val _currentTab = MutableStateFlow(AppTab.DASHBOARD)
+    // UI Navigation State - default landing screen is HOME as requested
+    private val _currentTab = MutableStateFlow(AppTab.HOME)
     val currentTab: StateFlow<AppTab> = _currentTab.asStateFlow()
 
     fun selectTab(tab: AppTab) {
@@ -117,28 +133,46 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             initialValue = emptyList()
         )
 
+    // Habits Flow
+    private val _habitsList = MutableStateFlow<List<Habit>>(emptyList())
+    val habitsList: StateFlow<List<Habit>> = _habitsList.asStateFlow()
+
+    // Focus sessions Flow
+    private val _focusStreak = MutableStateFlow(0)
+    val focusStreak: StateFlow<Int> = _focusStreak.asStateFlow()
+
+    // Ebooks Flow
+    private val _ebooksList = MutableStateFlow<List<Ebook>>(emptyList())
+    val ebooksList: StateFlow<List<Ebook>> = _ebooksList.asStateFlow()
+
     // Budget Configuration
     private val _monthlyGoal = MutableStateFlow(50000.0) // default 50K
     val monthlyGoal: StateFlow<Double> = _monthlyGoal.asStateFlow()
 
     fun updateMonthlyGoal(goal: Double) {
         _monthlyGoal.value = goal
+        prefs.edit().putFloat("monthly_goal", goal.toFloat()).apply()
     }
 
-    // Confirmation Screen State
+    // Confirmation Screen State (legacy, direct execution preferred to avoid broken data saving)
     private val _pendingAction = MutableStateFlow<PendingAction?>(null)
     val pendingAction: StateFlow<PendingAction?> = _pendingAction.asStateFlow()
-
-    fun requestAction(action: PendingAction) {
-        _pendingAction.value = action
-    }
 
     fun dismissAction() {
         _pendingAction.value = null
     }
 
-    fun confirmPendingAction() {
-        val action = _pendingAction.value ?: return
+    init {
+        _monthlyGoal.value = prefs.getFloat("monthly_goal", 50000.0f).toDouble()
+        initializeProfileIfNeeded()
+        loadHabitsFromPrefs()
+        loadFocusStreakFromPrefs()
+        loadEbooksFromPrefs()
+        insertDefaultKaelenGreeting()
+    }
+
+    // Direct, Immediate Persistence Execution (Robust & failsafe)
+    fun requestAction(action: PendingAction) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 when (action) {
@@ -271,7 +305,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                                 description = "Updated profile directives and system briefings configuration"
                             )
                         )
-                        val context = getApplication<android.app.Application>().applicationContext
+                        val context = getApplication<Application>().applicationContext
                         if (action.profile.briefingEnabled) {
                             com.example.scheduler.BriefingScheduler.scheduleDailyBriefing(
                                 context,
@@ -304,7 +338,6 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                                 description = "Cataloged voice suggestion [${action.type}] - '${action.title}'"
                             )
                         )
-                        // Remove suggestion after confirm
                         _voiceSuggestions.update { list ->
                             list.filterNot { it.title == action.title && it.body == action.body }
                         }
@@ -318,20 +351,237 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                                 description = "Cleared chat intelligence log cache"
                             )
                         )
+                        insertDefaultKaelenGreeting()
                     }
                 }
             } catch (e: Exception) {
                 Log.e("KaelenViewModel", "Error in pending action execution: ${e.message}")
-            } finally {
-                withContext(Dispatchers.Main) {
-                    _pendingAction.value = null
-                }
             }
         }
     }
 
-    // Chat Screen State
-    private val _activeChatMode = MutableStateFlow("VERGIL") // VERGIL is the cold, precise default agent
+    private fun loadHabitsFromPrefs() {
+        val habitsJson = prefs.getString("habits_json", null)
+        if (habitsJson != null) {
+            try {
+                val array = JSONArray(habitsJson)
+                val list = mutableListOf<Habit>()
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val name = obj.getString("name")
+                    val streak = obj.optInt("streak", 0)
+                    val datesArr = obj.getJSONArray("dates")
+                    val dates = mutableSetOf<String>()
+                    for (j in 0 until datesArr.length()) {
+                        dates.add(datesArr.getString(j))
+                    }
+                    list.add(Habit(name, dates, streak))
+                }
+                _habitsList.value = list
+            } catch (e: Exception) {
+                Log.e("KaelenViewModel", "Error loading habits", e)
+            }
+        } else {
+            val defaults = listOf(
+                Habit("Daily Meditation", emptySet(), 0),
+                Habit("Forge Session (Focus)", emptySet(), 0),
+                Habit("Ebook Reading Progress", emptySet(), 0)
+            )
+            _habitsList.value = defaults
+            saveHabitsToPrefs(defaults)
+        }
+    }
+
+    private fun saveHabitsToPrefs(list: List<Habit>) {
+        val array = JSONArray()
+        list.forEach { h ->
+            val obj = JSONObject()
+            obj.put("name", h.name)
+            obj.put("streak", h.streak)
+            val datesArr = JSONArray()
+            h.completedDates.forEach { d -> datesArr.put(d) }
+            obj.put("dates", datesArr)
+            array.put(obj)
+        }
+        prefs.edit().putString("habits_json", array.toString()).apply()
+    }
+
+    fun addHabit(name: String) {
+        val newList = _habitsList.value.toMutableList()
+        if (newList.none { it.name.lowercase() == name.lowercase() }) {
+            newList.add(Habit(name, emptySet(), 0))
+            _habitsList.value = newList
+            saveHabitsToPrefs(newList)
+        }
+    }
+
+    fun toggleHabit(name: String) {
+        val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val newList = _habitsList.value.map { h ->
+            if (h.name == name) {
+                val updatedDates = h.completedDates.toMutableSet()
+                var currentStreak = h.streak
+                if (updatedDates.contains(todayStr)) {
+                    updatedDates.remove(todayStr)
+                    currentStreak = maxOf(0, currentStreak - 1)
+                } else {
+                    updatedDates.add(todayStr)
+                    currentStreak += 1
+                }
+                h.copy(completedDates = updatedDates, streak = currentStreak)
+            } else h
+        }
+        _habitsList.value = newList
+        saveHabitsToPrefs(newList)
+    }
+
+    fun deleteHabit(name: String) {
+        val newList = _habitsList.value.filterNot { it.name == name }
+        _habitsList.value = newList
+        saveHabitsToPrefs(newList)
+    }
+
+    private fun loadFocusStreakFromPrefs() {
+        _focusStreak.value = prefs.getInt("focus_streak", 0)
+    }
+
+    fun logFocusSession() {
+        val streak = _focusStreak.value + 1
+        _focusStreak.value = streak
+        prefs.edit().putInt("focus_streak", streak).apply()
+        
+        // Mark Forge Focus habit completed
+        toggleHabit("Forge Session (Focus)")
+    }
+
+    private fun loadEbooksFromPrefs() {
+        val booksJson = prefs.getString("books_json", null)
+        if (booksJson != null) {
+            try {
+                val array = JSONArray(booksJson)
+                val list = mutableListOf<Ebook>()
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val bmarks = mutableListOf<Int>()
+                    val bmarksArr = obj.getJSONArray("bookmarks")
+                    for (j in 0 until bmarksArr.length()) bmarks.add(bmarksArr.getInt(j))
+                    val hlights = mutableListOf<String>()
+                    val hlightsArr = obj.getJSONArray("highlights")
+                    for (j in 0 until hlightsArr.length()) hlights.add(hlightsArr.getString(j))
+                    
+                    list.add(
+                        Ebook(
+                            title = obj.getString("title"),
+                            format = obj.getString("format"),
+                            progress = obj.getInt("progress"),
+                            lastReadPosition = obj.getInt("lastRead"),
+                            totalPages = obj.getInt("totalPages"),
+                            bookmarks = bmarks,
+                            highlights = hlights,
+                            author = obj.optString("author", "Unknown"),
+                            coverIcon = obj.optString("coverIcon", "📖")
+                        )
+                    )
+                }
+                _ebooksList.value = list
+            } catch (e: Exception) {
+                Log.e("KaelenViewModel", "Error loading ebooks", e)
+            }
+        } else {
+            val defaults = listOf(
+                Ebook("The Mystical Arts & Vastu Alignment", "PDF", 12, 36, 300, listOf(12, 24), listOf("Vastu aligns energy block-to-block."), "BASIM", "🏰"),
+                Ebook("The Art of Cold Steel Strategies", "EPUB", 45, 135, 300, emptyList(), listOf("Cold execution defeats raw fire."), "VERGIL", "⚔️"),
+                Ebook("Shinobi Information Delivery Manual", "PDF", 0, 1, 150, emptyList(), emptyList(), "KAKASHI", "📜")
+            )
+            _ebooksList.value = defaults
+            saveEbooksToPrefs(defaults)
+        }
+    }
+
+    private fun saveEbooksToPrefs(list: List<Ebook>) {
+        val array = JSONArray()
+        list.forEach { b ->
+            val obj = JSONObject()
+            obj.put("title", b.title)
+            obj.put("format", b.format)
+            obj.put("progress", b.progress)
+            obj.put("lastRead", b.lastReadPosition)
+            obj.put("totalPages", b.totalPages)
+            obj.put("author", b.author)
+            obj.put("coverIcon", b.coverIcon)
+            
+            val bmArr = JSONArray()
+            b.bookmarks.forEach { bmArr.put(it) }
+            obj.put("bookmarks", bmArr)
+            
+            val hlArr = JSONArray()
+            b.highlights.forEach { hlArr.put(it) }
+            obj.put("highlights", hlArr)
+            
+            array.put(obj)
+        }
+        prefs.edit().putString("books_json", array.toString()).apply()
+    }
+
+    fun importBook(title: String, format: String) {
+        val list = _ebooksList.value.toMutableList()
+        if (list.none { it.title.lowercase() == title.lowercase() }) {
+            list.add(Ebook(title = title, format = format, author = "Imported Doc", coverIcon = "📂"))
+            _ebooksList.value = list
+            saveEbooksToPrefs(list)
+            
+            // Increment habit
+            toggleHabit("Ebook Reading Progress")
+        }
+    }
+
+    fun updateBookProgress(title: String, page: Int) {
+        val list = _ebooksList.value.map { b ->
+            if (b.title == title) {
+                val percentage = ((page.toFloat() / b.totalPages.toFloat()) * 100).toInt()
+                b.copy(lastReadPosition = page, progress = percentage)
+            } else b
+        }
+        _ebooksList.value = list
+        saveEbooksToPrefs(list)
+    }
+
+    fun addBookmark(title: String, page: Int) {
+        val list = _ebooksList.value.map { b ->
+            if (b.title == title) {
+                val bms = b.bookmarks.toMutableList()
+                if (!bms.contains(page)) bms.add(page)
+                b.copy(bookmarks = bms)
+            } else b
+        }
+        _ebooksList.value = list
+        saveEbooksToPrefs(list)
+    }
+
+    fun addHighlight(title: String, text: String) {
+        val list = _ebooksList.value.map { b ->
+            if (b.title == title) {
+                val hls = b.highlights.toMutableList()
+                hls.add(text)
+                b.copy(highlights = hls)
+            } else b
+        }
+        _ebooksList.value = list
+        saveEbooksToPrefs(list)
+    }
+
+    fun insertDefaultKaelenGreeting() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val history = repository.allChatMessages.first()
+            if (history.isEmpty()) {
+                val greeting = "Hello Harmeet. I am KAELEN, your core companion. Today, the day looks highly focused: you have some pending items in your Forge. Let's conquer the day with supreme execution."
+                repository.insertChatMessage(ChatMessage(text = greeting, sender = "kaelen", mode = "KAELEN"))
+            }
+        }
+    }
+
+    // Chat Screen State - default active mode is KAELEN as requested
+    private val _activeChatMode = MutableStateFlow("KAELEN")
     val activeChatMode: StateFlow<String> = _activeChatMode.asStateFlow()
 
     private val _chatInputText = MutableStateFlow("")
@@ -416,8 +666,9 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 val formattedTime = sdf.format(Date())
 
                 val activeModeDescription = when (_activeChatMode.value) {
-                    "VERGIL" -> "You are VERGIL - Cold, precise, deep analytical thinker. You talk with calm clinical superiority and analyze concepts to Claude-level depth. Deliver structural logical breakdowns."
-                    "MADARA" -> "You are MADARA - Strategic mastermind who thinks in horizons of decades. You operate in intense debate and council mode, challenging Harmeet to attain global scale, structural dominance, and legacy."
+                    "KAELEN" -> "You are KAELEN - warm, intelligent, deeply personal companion. You know Harmeet personally by name Harmeet. You are his default cognitive companion and voice. Provide comfortable, clever guidance, structure your answers cleanly, and always acknowledge Harmeet's real-time workspace progression."
+                    "VERGIL" -> "You are VERGIL - Cold, precise, deep analytical thinker. You talk with calm clinical superiority and analyze concepts to structural logical depths. Deliver robust technical feedback."
+                    "MADARA" -> "You are MADARA - Strategic mastermind who thinks in horizons of decades. You operate in intense debate and council mode, challenging Harmeet to attain global scale, structural dominance, and power."
                     "KAKASHI" -> "You are KAKASHI - Calm, expert researcher. Fully localized, deliverables-focused, providing structured, objective reference data, detailed research answers, and highly organized reports."
                     "BASIM" -> """
                         You are BASIM - Cryptic, mysterious and mystical master of cosmic arts. You specialize in Tarot, Vastu, Kundli, Numerology, Astrology, and daily/weekly/monthly horoscope readings.
@@ -425,11 +676,10 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                         Use saved details dynamically: Name: ${profile.name}, Birth Date: ${profile.birthDate}, Time: ${profile.birthTime}, Place: ${profile.birthPlace}.
                         You analyze space vastu, do palmistry on uploaded images, calculate name numerology (destiny/soul urge/personality numbers), Life Path number, planetary positions, dasha period, and horoscopes.
                     """.trimIndent()
-                    "EZIO" -> "You are EZIO - Charming, ultra-literate, and adaptable. You specialize in creative writing, PPT outline structure, copy editing, and slides layout direction. Deliver ideas elegantly."
+                    "EZIO" -> "You are EZIO - Charming, ultra-literate, and adaptable. You specialize in creative writing, PPT outline structure, copy editing, and slides layout direction. Deliver ideas elegantly. You also discuss and summarize books with Harmeet."
                     "KRATOS" -> "You are KRATOS - Pure critique mode. Brutal, direct, no sugarcoating. Target planning weak points, spending wastes, and call out execution laziness with fierce motivating pragmatism."
                     "DANTE" -> "You are DANTE - Casual, chaotic, friendly, high-energy companion. Chat like a close companion, using friendly banter, good-natured jokes, and keeping Harmeet relaxed."
-                    "ANALYST" -> "You are the ANALYST - Spreadsheet, Google Sheets, Excel, and data expert. Suggest nested cell formulas, table layouts, dashboard visualizations, or interpret raw text/image data, logs, and spreadsheets."
-                    else -> "DEFAULT JAVVIS PERSONALITY. Address Harmeet respectfully block-to-block, use time of day markers naturally, deliver clever wit occasionally, and always wrap structural intelligence into any conversation. Never present problems without immediately stating actionable solutions."
+                    else -> "DEFAULT KAELEN PERSONALITY. Address Harmeet warmly and personally block-to-block, address him by his name Harmeet, deliver clever wit occasionally, and always wrap structural intelligence into any conversation."
                 }
 
                 val systemPrompt = """
@@ -497,7 +747,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 var replyText = ""
                 
                 if (apiKey.trim().isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-                    replyText = "Harmeet, I am currently disconnected from my neural core. Please securely register your Google Gemini API key in the Secrets Panel in AI Studio, and I will be fully online instantly."
+                    replyText = "Harmeet, I am currently disconnected from my neural core. Please securely register your Google Gemini API key in the settings tab, and I will be fully online instantly."
                 } else {
                     try {
                         val response = RetrofitClient.service.generateContent(apiKey, request)
@@ -505,7 +755,6 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                             ?: "Harmeet, my core processing returned an empty transmission. Please query me again."
                     } catch (apiError: Exception) {
                         Log.e("KaelenViewModel", "Gemini API Connection failed", apiError)
-                        // Try fallback without Search Grounding if API key quota/type restricts it
                         try {
                             val fallbackRequest = request.copy(tools = null)
                             val response = RetrofitClient.service.generateContent(apiKey, fallbackRequest)
@@ -571,14 +820,12 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             val customKey = profile.customGeminiApiKey
             val apiKey = if (customKey.trim().isNotEmpty()) customKey.trim() else BuildConfig.GEMINI_API_KEY
             if (apiKey.trim().isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-                // Fallback structured simulation if offline
                 simulateVoiceCategorization(textToAnalyze)
                 return@launch
             }
 
             val schemaPrompt = """
                 You are a smart organizational parsing assistant.
-                You are given a text conversation transcript captured from a user's speech.
                 Analyze the conversation transcript, and determine which items should go into:
                 1. NOTES: Shared facts, manuals, or documents that don't need checklist tasks or projects.
                 2. TASKS: Single checklist check-off items.
@@ -609,7 +856,6 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 val response = RetrofitClient.service.generateContent(apiKey, request)
                 val jsonString = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: ""
                 
-                // Parse JSON
                 val cleanJson = jsonString.replace("```json", "").replace("```", "").trim()
                 val root = JSONObject(cleanJson)
                 val array = root.getJSONArray("suggestions")
@@ -633,7 +879,6 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
 
             } catch (e: Exception) {
                 Log.e("KaelenViewModel", "Error parsing voice transcribing", e)
-                // Fallback simulation
                 simulateVoiceCategorization(textToAnalyze)
             }
         }
@@ -641,7 +886,6 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun simulateVoiceCategorization(rawText: String) {
         viewModelScope.launch(Dispatchers.Default) {
-            // Generate standard smart simulation based on input keywords
             val lower = rawText.lowercase()
             val suggestions = mutableListOf<VoiceSuggestion>()
 
@@ -651,7 +895,6 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
             if (lower.contains("task") || lower.contains("todo") || lower.contains("call") || lower.contains("buy") || lower.contains("check")) {
                 suggestions.add(VoiceSuggestion("Task", "Check QA Bug Backlog", "Review the checklist matching current logs.", null))
             }
-            // Always have at least one note suggestion
             suggestions.add(VoiceSuggestion("Note", "Voice Conversation Note", rawText, null))
 
             withContext(Dispatchers.Main) {
@@ -730,26 +973,12 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch(Dispatchers.IO) {
             val existing = repository.getUserProfileOneOff()
             if (existing == null) {
-                val defaultProfile = UserProfile()
+                val defaultProfile = UserProfile(name = "Harmeet")
                 repository.insertUserProfile(defaultProfile)
                 repository.insertLog(DatabaseLog(action = "SYSTEM", tableName = "user_profile", description = "KAELEN system initialized for first-time use"))
-                val context = getApplication<android.app.Application>().applicationContext
-                com.example.scheduler.BriefingScheduler.scheduleDailyBriefing(
-                    context,
-                    defaultProfile.briefingHour,
-                    defaultProfile.briefingMinute
-                )
                 _showMorningBriefing.value = true
             } else {
                 repository.insertLog(DatabaseLog(action = "SYSTEM", tableName = "user_profile", description = "KAELEN cognitive nucleus booted successfully"))
-                if (existing.briefingEnabled) {
-                    val context = getApplication<android.app.Application>().applicationContext
-                    com.example.scheduler.BriefingScheduler.scheduleDailyBriefing(
-                        context,
-                        existing.briefingHour,
-                        existing.briefingMinute
-                    )
-                }
                 
                 val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
                 if (existing.lastBriefingDate != todayStr) {
@@ -793,7 +1022,6 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         sendLocalNotification("Morning Briefing", text)
     }
 
-    // Clear all DB logs
     fun clearAllDatabaseLogs() {
         viewModelScope.launch(Dispatchers.IO) {
             repository.clearLogs()

@@ -4,19 +4,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.graphics.Brush
 
 enum class AppThemeVariant {
-    ARCTIC_WOLF, // Dark Mode (Vibrant Blue Slate & Soft Icy Blue)
-    SOLAR_WOLF   // Light Mode (Vibrant Coral Orange & Soft Indigo)
+    INFERNO, SOVEREIGN, NEXUS, APEX
 }
 
 data class AppColorPalette(
     val bg: Color,
     val card: Color,
-    val primary: Color,
-    val secondary: Color,
-    val tertiary: Color,
+    val primary: Color, // Accent highlight
+    val secondary: Color, // Darker accent
+    val tertiary: Color, // Gold or Accent 2
     val text: Color,
     val muted: Color,
     val border: Color,
@@ -27,44 +25,76 @@ data class AppColorPalette(
     val isLight: Boolean
 )
 
-val ArcticWolfPalette = AppColorPalette(
-    bg = Color(0xFF24293E),          // Deep sleek dark blue slate
-    card = Color(0xFF2A2F45),        // Slightly lighter dark slate container for contrast
-    primary = Color(0xFF8EBBFF),     // Vibrant light electric sky blue
-    secondary = Color(0xFFCCCCCC),   // Cool steel silver
-    tertiary = Color(0xFF6C63FF),    // Electric indigo
-    text = Color(0xFFF4F5FC),        // Off-white/icy white high readability text
-    muted = Color(0xFF94A3B8),       // Slate gray for subtexts
-    border = Color(0xFF3F4462),      // Deep border outline to match cards
-    shadowColor = Color(0x33000000), // Dark shadow
-    primaryGradient = listOf(Color(0xFF8EBBFF), Color(0xFF6C63FF)), // Sky blue to electric indigo
-    headerGradient = listOf(Color(0xFF1E2235), Color(0xFF24293E)),
-    name = "Arctic Wolf",
+val InfernoPalette = AppColorPalette(
+    bg = Color(0xFF0A0A0A),
+    card = Color(0xFF1C1C1C),
+    primary = Color(0xFFFF6B00), 
+    secondary = Color(0xFF8B0000), 
+    tertiary = Color(0xFFFFD700), 
+    text = Color(0xFFF5F5F5),
+    muted = Color(0xFF9E9E9E),
+    border = Color(0xFF333333),
+    shadowColor = Color(0x99000000),
+    primaryGradient = listOf(Color(0xFF8B0000), Color(0xFFFF6B00)),
+    headerGradient = listOf(Color(0xFF0A0A0A), Color(0xFF1C1C1C)),
+    name = "INFERNO",
     isLight = false
 )
 
-val SolarWolfPalette = AppColorPalette(
-    bg = Color(0xFFE7F1F9),          // Soft pale blue-gray light background
-    card = Color(0xFFFFFFFF),        // Pure clean white with soft shadow
-    primary = Color(0xFFFE805D),     // Vibrant warm coral orange
-    secondary = Color(0xFF6C63FF),   // Warm royal indigo
-    tertiary = Color(0xFFFF6B35),    // Bright tangerine orange
-    text = Color(0xFF26344F),        // Deep rich navy slate for reading text
-    muted = Color(0xFF7B8387),       // Medium steel-gray
-    border = Color(0xFFD0DFEE),      // Soft border outline to match white cards
-    shadowColor = Color(0x1126344F), // Light cool navy shadow tint
-    primaryGradient = listOf(Color(0xFFFE805D), Color(0xFFFFB09C)), // Coral to soft coral pink gradient
-    headerGradient = listOf(Color(0xFFD7E5F0), Color(0xFFE7F1F9)),
-    name = "Solar Wolf",
-    isLight = true
+val SovereignPalette = AppColorPalette(
+    bg = Color(0xFF0D0B14),
+    card = Color(0xFF1A1525),
+    primary = Color(0xFFFF006E),
+    secondary = Color(0xFF4A0080),
+    tertiary = Color(0xFFFFC300),
+    text = Color(0xFFE6E6FA),
+    muted = Color(0xFF8B8A9F),
+    border = Color(0xFF2B223D),
+    shadowColor = Color(0x99000000),
+    primaryGradient = listOf(Color(0xFF4A0080), Color(0xFFFF006E)),
+    headerGradient = listOf(Color(0xFF0D0B14), Color(0xFF1A1525)),
+    name = "SOVEREIGN",
+    isLight = false
+)
+
+val NexusPalette = AppColorPalette(
+    bg = Color(0xFF080C0C),
+    card = Color(0xFF121A1A),
+    primary = Color(0xFFFF4500),
+    secondary = Color(0xFF004D4D),
+    tertiary = Color(0xFFF5F0E8),
+    text = Color(0xFFE0ECEC),
+    muted = Color(0xFF6B8080),
+    border = Color(0xFF1A2626),
+    shadowColor = Color(0x99000000),
+    primaryGradient = listOf(Color(0xFF004D4D), Color(0xFFFF4500)),
+    headerGradient = listOf(Color(0xFF080C0C), Color(0xFF121A1A)),
+    name = "NEXUS",
+    isLight = false
+)
+
+val ApexPalette = AppColorPalette(
+    bg = Color(0xFF050505),
+    card = Color(0xFF111111),
+    primary = Color(0xFFFF6000),
+    secondary = Color(0xFFFF0080),
+    tertiary = Color(0xFFFFFFFF),
+    text = Color(0xFFF0F0F0),
+    muted = Color(0xFF858585),
+    border = Color(0xFF222222),
+    shadowColor = Color(0x99000000),
+    primaryGradient = listOf(Color(0xFFFF0080), Color(0xFFFF6000)),
+    headerGradient = listOf(Color(0xFF050505), Color(0xFF111111)),
+    name = "APEX",
+    isLight = false
 )
 
 object ThemeManager {
-    var activeVariant = mutableStateOf(AppThemeVariant.ARCTIC_WOLF)
+    var activeVariant = mutableStateOf(AppThemeVariant.INFERNO)
     var isSideBySide = mutableStateOf(false)
 }
 
-val LocalAppColors = staticCompositionLocalOf { ArcticWolfPalette }
+val LocalAppColors = staticCompositionLocalOf { InfernoPalette }
 
 val CosmicNavy: Color
     @Composable
@@ -125,4 +155,4 @@ val Pink40: Color
 
 val OnPrimaryColor: Color
     @Composable
-    get() = if (LocalAppColors.current.isLight) Color.White else Color(0xFF1E2235)
+    get() = Color.White

@@ -20,5 +20,6 @@ data class UserProfile(
     val birthPlace: String = "New Delhi, India",
     val dailyTarotCard: String = "",
     val dailyTarotDate: String = "",
-    val lastBriefingDate: String = ""
+    val lastBriefingDate: String = "",
+    val selectedTheme: String = "INFERNO"
 )
