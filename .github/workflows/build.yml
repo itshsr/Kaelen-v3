@@ -25,8 +25,11 @@ jobs:
       - name: Download Gradle Wrapper JAR
         run: |
           mkdir -p gradle/wrapper
-          curl -L -o gradle/wrapper/gradle-wrapper.jar \
-            https://github.com/gradle/gradle/raw/v8.9.0/gradle/wrapper/gradle-wrapper.jar
+          curl -L -o gradle/wrapper/gradle-8.9-bin.zip \
+            https://services.gradle.org/distributions/gradle-8.9-bin.zip
+          cd gradle/wrapper
+          unzip -j gradle-8.9-bin.zip "gradle-8.9/lib/gradle-wrapper.jar" -d .
+          rm gradle-8.9-bin.zip
 
       - name: Initialize Environment Variables
         run: touch .env
