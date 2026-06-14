@@ -17,16 +17,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Find and fix gradlew
-        run: |
-          find . -name "gradlew" -type f
-          chmod +x $(find . -name "gradlew" -type f | head -1)
+      - name: Make gradlew executable
+        run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: |
-          GRADLEW=$(find . -name "gradlew" -type f | head -1)
-          GRADLE_DIR=$(dirname $GRADLEW)
-          cd $GRADLE_DIR && ./gradlew assembleDebug
+        run: ./gradlew assembleDebug
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
@@ -34,4 +29,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: KAELEN-debug
-          path: "**/build/outputs/apk/debug/*.apk"
+          path: app/build/outputs/apk/debug/app-debug.apk
