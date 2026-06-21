@@ -12,19 +12,28 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 val activeVariantFlow = MutableStateFlow(AppThemeVariant.INFERNO)
 
-class MutableStateFlowWrapper<T>(val flow: MutableStateFlow<T>) : MutableState<T> {
+class MutableStateFlowState<T>(
+    private val flow: MutableStateFlow<T>
+) : MutableStateFlow<T> by flow, androidx.compose.runtime.MutableState<T> {
+    private val state = androidx.compose.runtime.mutableStateOf(flow.value)
+
     override var value: T
-        get() = flow.value
-        set(v) { flow.value = v }
-    
-    override fun component1(): T = flow.value
-    override fun component2(): (T) -> Unit = { flow.value = it }
+        get() = state.value
+        set(v) {
+            state.value = v
+            flow.value = v
+        }
+
+    override fun component1(): T = state.value
+    override fun component2(): (T) -> Unit = { this.value = it }
 }
+
+val activeVariantState = MutableStateFlowState(activeVariantFlow)
 
 private val initThemeWrapper = run {
     val currentVal = ThemeManager.activeVariant.value
     activeVariantFlow.value = currentVal
-    ThemeManager.activeVariant = MutableStateFlowWrapper(activeVariantFlow)
+    ThemeManager.activeVariant = activeVariantState
     true
 }
 
