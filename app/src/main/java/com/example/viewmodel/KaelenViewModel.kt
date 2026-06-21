@@ -39,7 +39,16 @@ sealed class PendingAction {
     data class DeleteProject(val project: Project) : PendingAction()
     data class AddNote(val title: String, val content: String) : PendingAction()
     data class DeleteNote(val note: Note) : PendingAction()
-    data class UpdateProfile(val profile: UserProfile) : PendingAction()
+    data class UpdateProfileDirectives(
+        val name: String,
+        val role: String,
+        val city: String,
+        val customGeminiApiKey: String,
+        val birthDate: String,
+        val birthTime: String,
+        val birthPlace: String
+    ) : PendingAction()
+    data class UpdateTheme(val theme: String) : PendingAction()
     data class SaveVoiceSuggestion(val type: String, val title: String, val body: String, val extra: String? = null) : PendingAction()
     object ClearChat : PendingAction()
 }
@@ -328,17 +337,13 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
     fun updateMonthlyGoal(goal: Double) {
         _monthlyGoal.value = goal
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = repository.getUserProfileOneOff() ?: UserProfile()
-            val updated = existing.copy(monthlyGoal = goal)
-            repository.insertUserProfile(updated)
+            repository.updateMonthlyGoal(goal)
         }
     }
 
     fun updatePreferredTimer(focusMin: Int, breakMin: Int) {
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = repository.getUserProfileOneOff() ?: UserProfile()
-            val updated = existing.copy(preferredFocusMinutes = focusMin, preferredBreakMinutes = breakMin)
-            repository.insertUserProfile(updated)
+            repository.updatePreferredTimer(focusMin, breakMin)
             repository.insertLog(DatabaseLog(action = "UPDATE", tableName = "user_profile", description = "Preferred durations updated to $focusMin / $breakMin minutes."))
         }
     }
@@ -398,7 +403,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                     dailyTarotDate = todayStr,
                     dailyTarotCard = cardRepresentation
                 )
-                repository.insertUserProfile(profile)
+                repository.updateDailyTarot(todayStr, cardRepresentation)
                 repository.insertLog(DatabaseLog(action = "UPDATE", tableName = "user_profile", description = "Tarot of the day drawn for $todayStr: ${drawnCard.displayName}"))
             }
 
@@ -593,41 +598,62 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                             )
                         )
                     }
-                    is PendingAction.UpdateProfile -> {
-                        repository.insertUserProfile(action.profile)
-                        
+                    is PendingAction.UpdateProfileDirectives -> {
+                        repository.updateProfileDirectives(
+                            name = action.name,
+                            role = action.role,
+                            city = action.city,
+                            customGeminiApiKey = action.customGeminiApiKey,
+                            birthDate = action.birthDate,
+                            birthTime = action.birthTime,
+                            birthPlace = action.birthPlace
+                        )
+                        repository.insertLog(
+                            DatabaseLog(
+                                action = "UPDATE",
+                                tableName = "user_profile",
+                                description = "Updated profile directives configuration"
+                            )
+                        )
+
+                        // Re-apply briefing schedule using the (unchanged) persisted briefing settings
+                        val context = getApplication<Application>().applicationContext
+                        val current = repository.getUserProfileOneOff()
+                        if (current != null) {
+                            if (current.briefingEnabled) {
+                                com.example.scheduler.BriefingScheduler.scheduleDailyBriefing(
+                                    context,
+                                    current.briefingHour,
+                                    current.briefingMinute
+                                )
+                            } else {
+                                com.example.scheduler.BriefingScheduler.cancelDailyBriefing(context)
+                            }
+                        }
+                    }
+                    is PendingAction.UpdateTheme -> {
+                        repository.updateSelectedTheme(action.theme)
+
                         // Save Theme variant immediately to DataStore & update global ThemeManager.activeVariant
-                        viewModelScope.launch(Dispatchers.IO) {
-                            val context = getApplication<Application>().applicationContext
-                            com.example.data.ThemePreferences.saveTheme(context, action.profile.selectedTheme)
-                            val variant = when (action.profile.selectedTheme.uppercase()) {
-                                "ARCTIC_FOX", "ARCTIC FOX" -> com.example.ui.theme.AppThemeVariant.ARCTIC_FOX
-                                "CRIMSON_WOLF", "CRIMSON WOLF" -> com.example.ui.theme.AppThemeVariant.CRIMSON_WOLF
-                                "NEXUS" -> com.example.ui.theme.AppThemeVariant.NEXUS
-                                else -> com.example.ui.theme.AppThemeVariant.INFERNO
-                            }
-                            withContext(Dispatchers.Main) {
-                                com.example.ui.theme.ThemeManager.activeVariant.value = variant
-                            }
+                        val context = getApplication<Application>().applicationContext
+                        com.example.data.ThemePreferences.saveTheme(context, action.theme)
+                        val variant = when (action.theme.uppercase()) {
+                            "ARCTIC_FOX", "ARCTIC FOX" -> com.example.ui.theme.AppThemeVariant.ARCTIC_FOX
+                            "CRIMSON_WOLF", "CRIMSON WOLF" -> com.example.ui.theme.AppThemeVariant.CRIMSON_WOLF
+                            "NEXUS" -> com.example.ui.theme.AppThemeVariant.NEXUS
+                            else -> com.example.ui.theme.AppThemeVariant.INFERNO
+                        }
+                        withContext(Dispatchers.Main) {
+                            com.example.ui.theme.ThemeManager.activeVariant.value = variant
                         }
 
                         repository.insertLog(
                             DatabaseLog(
                                 action = "UPDATE",
                                 tableName = "user_profile",
-                                description = "Updated profile directives and system briefings configuration"
+                                description = "Theme variant changed to ${action.theme}"
                             )
                         )
-                        val context = getApplication<Application>().applicationContext
-                        if (action.profile.briefingEnabled) {
-                            com.example.scheduler.BriefingScheduler.scheduleDailyBriefing(
-                                context,
-                                action.profile.briefingHour,
-                                action.profile.briefingMinute
-                            )
-                        } else {
-                            com.example.scheduler.BriefingScheduler.cancelDailyBriefing(context)
-                        }
                     }
                     is PendingAction.SaveVoiceSuggestion -> {
                         val table = when (action.type.lowercase().trim()) {
@@ -804,9 +830,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
     private fun saveHabitsToDatabase(list: List<Habit>) {
         val json = serializeHabits(list)
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = repository.getUserProfileOneOff() ?: UserProfile()
-            val updated = existing.copy(habitsJson = json)
-            repository.insertUserProfile(updated)
+            repository.updateHabitsJson(json)
         }
     }
 
@@ -850,9 +874,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         _focusStreak.value = streak
 
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = repository.getUserProfileOneOff() ?: UserProfile()
-            val updated = existing.copy(focusStreak = streak)
-            repository.insertUserProfile(updated)
+            repository.updateFocusStreak(streak)
         }
 
         // Mark Forge Focus habit completed
@@ -935,9 +957,7 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
     private fun saveEbooksToDatabase(list: List<Ebook>) {
         val json = serializeEbooks(list)
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = repository.getUserProfileOneOff() ?: UserProfile()
-            val updated = existing.copy(ebooksJson = json)
-            repository.insertUserProfile(updated)
+            repository.updateEbooksJson(json)
         }
     }
 
@@ -1371,10 +1391,8 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
     fun dismissMorningBriefing() {
         _showMorningBriefing.value = false
         viewModelScope.launch(Dispatchers.IO) {
-            val profile = repository.getUserProfileOneOff() ?: UserProfile()
             val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-            val updated = profile.copy(lastBriefingDate = todayStr)
-            repository.insertUserProfile(updated)
+            repository.updateLastBriefingDate(todayStr)
             repository.insertLog(DatabaseLog(action = "SYSTEM", tableName = "user_profile", description = "Morning Briefing dismissed cleanly for today ($todayStr)"))
         }
     }
@@ -1386,9 +1404,8 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         }
         val drawn = TarotDeck.drawCard()
         val cardStr = "${drawn.displayName}: ${drawn.activeMeaning}"
-        val updated = profile.copy(dailyTarotCard = cardStr, dailyTarotDate = todayStr)
         viewModelScope.launch(Dispatchers.IO) {
-            repository.insertUserProfile(updated)
+            repository.updateDailyTarot(todayStr, cardStr)
         }
         return cardStr
     }

@@ -9,6 +9,23 @@ class KaelenRepository(private val appDao: AppDao) {
     val userProfile: Flow<UserProfile?> = appDao.getUserProfile()
     suspend fun getUserProfileOneOff(): UserProfile? = appDao.getUserProfileOneOff()
     suspend fun insertUserProfile(profile: UserProfile) = appDao.insertUserProfile(profile)
+    suspend fun updateSelectedTheme(theme: String) = appDao.updateSelectedTheme(theme)
+    suspend fun updateProfileDirectives(
+        name: String,
+        role: String,
+        city: String,
+        customGeminiApiKey: String,
+        birthDate: String,
+        birthTime: String,
+        birthPlace: String
+    ) = appDao.updateProfileDirectives(name, role, city, customGeminiApiKey, birthDate, birthTime, birthPlace)
+    suspend fun updateMonthlyGoal(goal: Double) = appDao.updateMonthlyGoal(goal)
+    suspend fun updatePreferredTimer(focusMin: Int, breakMin: Int) = appDao.updatePreferredTimer(focusMin, breakMin)
+    suspend fun updateHabitsJson(json: String) = appDao.updateHabitsJson(json)
+    suspend fun updateEbooksJson(json: String) = appDao.updateEbooksJson(json)
+    suspend fun updateFocusStreak(streak: Int) = appDao.updateFocusStreak(streak)
+    suspend fun updateLastBriefingDate(date: String) = appDao.updateLastBriefingDate(date)
+    suspend fun updateDailyTarot(date: String, card: String) = appDao.updateDailyTarot(date, card)
 
     // Expenses
     val allExpenses: Flow<List<Expense>> = appDao.getAllExpenses()

@@ -16,6 +16,55 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertUserProfile(profile: UserProfile)
 
+    // Targeted column updates - avoid full-row REPLACE so concurrent profile-field
+    // writes (theme, API key, habits, focus streak, etc.) can't clobber each other.
+    @Query("UPDATE user_profile SET selectedTheme = :theme WHERE id = 1")
+    suspend fun updateSelectedTheme(theme: String)
+
+    @Query(
+        """
+        UPDATE user_profile SET
+            name = :name,
+            role = :role,
+            city = :city,
+            customGeminiApiKey = :customGeminiApiKey,
+            birthDate = :birthDate,
+            birthTime = :birthTime,
+            birthPlace = :birthPlace
+        WHERE id = 1
+        """
+    )
+    suspend fun updateProfileDirectives(
+        name: String,
+        role: String,
+        city: String,
+        customGeminiApiKey: String,
+        birthDate: String,
+        birthTime: String,
+        birthPlace: String
+    )
+
+    @Query("UPDATE user_profile SET monthlyGoal = :goal WHERE id = 1")
+    suspend fun updateMonthlyGoal(goal: Double)
+
+    @Query("UPDATE user_profile SET preferredFocusMinutes = :focusMin, preferredBreakMinutes = :breakMin WHERE id = 1")
+    suspend fun updatePreferredTimer(focusMin: Int, breakMin: Int)
+
+    @Query("UPDATE user_profile SET habitsJson = :json WHERE id = 1")
+    suspend fun updateHabitsJson(json: String)
+
+    @Query("UPDATE user_profile SET ebooksJson = :json WHERE id = 1")
+    suspend fun updateEbooksJson(json: String)
+
+    @Query("UPDATE user_profile SET focusStreak = :streak WHERE id = 1")
+    suspend fun updateFocusStreak(streak: Int)
+
+    @Query("UPDATE user_profile SET lastBriefingDate = :date WHERE id = 1")
+    suspend fun updateLastBriefingDate(date: String)
+
+    @Query("UPDATE user_profile SET dailyTarotDate = :date, dailyTarotCard = :card WHERE id = 1")
+    suspend fun updateDailyTarot(date: String, card: String)
+
     // Expenses
     @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
     fun getAllExpenses(): Flow<List<Expense>>

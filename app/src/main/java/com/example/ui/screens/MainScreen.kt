@@ -2397,16 +2397,17 @@ fun UserSettingsScreen(viewModel: KaelenViewModel, profile: UserProfile) {
                     
                     Button(
                         onClick = {
-                            val updated = profile.copy(
-                                name = nameVal.trim(),
-                                role = roleVal.trim(),
-                                city = cityVal.trim(),
-                                customGeminiApiKey = customApiKeyVal.trim(),
-                                birthDate = birthDateVal.trim(),
-                                birthTime = birthTimeVal.trim(),
-                                birthPlace = birthPlaceVal.trim()
+                            viewModel.requestAction(
+                                PendingAction.UpdateProfileDirectives(
+                                    name = nameVal.trim(),
+                                    role = roleVal.trim(),
+                                    city = cityVal.trim(),
+                                    customGeminiApiKey = customApiKeyVal.trim(),
+                                    birthDate = birthDateVal.trim(),
+                                    birthTime = birthTimeVal.trim(),
+                                    birthPlace = birthPlaceVal.trim()
+                                )
                             )
-                            viewModel.requestAction(PendingAction.UpdateProfile(updated))
                             Toast.makeText(context, "Directives saved successfully.", Toast.LENGTH_SHORT).show()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = palette.primary),
@@ -2441,8 +2442,7 @@ fun UserSettingsScreen(viewModel: KaelenViewModel, profile: UserProfile) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    val updated = profile.copy(selectedTheme = opt.key)
-                                    viewModel.requestAction(PendingAction.UpdateProfile(updated))
+                                    viewModel.requestAction(PendingAction.UpdateTheme(opt.key))
                                 }
                                 .background(if (isSelected) palette.border.copy(alpha = 0.2f) else Color.Transparent, RoundedCornerShape(8.dp))
                                 .padding(8.dp),
