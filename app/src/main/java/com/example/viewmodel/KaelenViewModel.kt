@@ -1109,21 +1109,24 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         _selectedImageBase64.value = null
     }
 
-    // Logs the real, raw HTTP failure detail from Gemini instead of just the generic exception
+    // Captures the real, raw HTTP failure detail from Gemini instead of just the generic exception
     // message — for an HttpException this includes the literal status code and response body
     // (e.g. a 429's exact quota-dimension text: RPM, TPM, or RPD), which a bare e.message never
-    // surfaces. Call this from every catch block around a generateContent call.
-    private fun logGeminiHttpError(context: String, e: Throwable) {
-        if (e is HttpException) {
+    // surfaces. Logs it (tag KaelenGeminiError) AND returns it, so callers can also surface the
+    // real detail directly in the chat reply without needing logcat/adb access.
+    private fun logGeminiHttpError(context: String, e: Throwable): String {
+        val detail = if (e is HttpException) {
             val rawBody = try {
-                e.response()?.errorBody()?.string()
+                e.response()?.errorBody()?.string()?.takeIf { it.isNotBlank() }
             } catch (readError: Exception) {
-                "<failed to read error body: ${readError.message}>"
+                null
             }
-            Log.e("KaelenGeminiError", "$context — HTTP ${e.code()} ${e.message()}: $rawBody")
+            "HTTP ${e.code()} ${e.message()}: ${rawBody ?: "<no response body>"}"
         } else {
-            Log.e("KaelenGeminiError", "$context — ${e::class.simpleName}: ${e.message}", e)
+            "${e::class.simpleName}: ${e.message ?: "no further detail"}"
         }
+        Log.e("KaelenGeminiError", "$context — $detail", e)
+        return detail
     }
 
     // Drives the function-calling round trip for a single chat turn, shared by every persona.
@@ -1400,15 +1403,19 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                     try {
                         replyText = runChatTurnWithToolCalling(request, apiKey)
                     } catch (apiError: Exception) {
-                        logGeminiHttpError("Primary tool-calling request failed", apiError)
+                        val primaryErrorDetail = logGeminiHttpError("Primary tool-calling request failed", apiError)
                         try {
                             val fallbackRequest = request.copy(tools = null)
                             val response = RetrofitClient.service.generateContent(apiKey, fallbackRequest)
                             replyText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
                                 ?: "Transmission parsed empty, Harmeet."
                         } catch (fallbackError: Exception) {
-                            logGeminiHttpError("Fallback (tools=null) request also failed", fallbackError)
-                            replyText = "I encountered an error connecting to my cognitive networks. Error details: ${fallbackError.localizedMessage ?: "Unknown network interruption."}"
+                            val fallbackErrorDetail = logGeminiHttpError("Fallback (tools=null) request also failed", fallbackError)
+                            // Show Google's real, raw error detail directly in the chat bubble so it's
+                            // visible without pulling logcat/adb — not a generic exception message.
+                            replyText = "I encountered an error connecting to my cognitive networks.\n\n" +
+                                "Primary attempt: $primaryErrorDetail\n" +
+                                "Fallback attempt: $fallbackErrorDetail"
                         }
                     }
                 }
