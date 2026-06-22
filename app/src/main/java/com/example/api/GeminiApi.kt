@@ -14,12 +14,13 @@ import java.util.concurrent.TimeUnit
 data class GenerateContentRequest(
     val contents: List<Content>,
     val generationConfig: GenerationConfig? = null,
-    val tools: List<Map<String, Map<String, String>>>? = null,
+    val tools: List<Tool>? = null,
     val systemInstruction: Content? = null
 )
 
 data class Content(
-    val parts: List<Part>
+    val parts: List<Part>,
+    val role: String? = null
 )
 
 data class Blob(
@@ -29,12 +30,48 @@ data class Blob(
 
 data class Part(
     val text: String? = null,
-    val inlineData: Blob? = null
+    val inlineData: Blob? = null,
+    val functionCall: FunctionCall? = null,
+    val functionResponse: FunctionResponse? = null
 )
 
 data class GenerationConfig(
     val temperature: Float? = null,
     val maxOutputTokens: Int? = null
+)
+
+// Tool / function-calling data structures
+data class Tool(
+    val googleSearch: Map<String, Any>? = null,
+    val functionDeclarations: List<FunctionDeclaration>? = null
+)
+
+data class FunctionDeclaration(
+    val name: String,
+    val description: String,
+    val parameters: FunctionParameters
+)
+
+data class FunctionParameters(
+    val type: String = "OBJECT",
+    val properties: Map<String, PropertySchema>,
+    val required: List<String> = emptyList()
+)
+
+data class PropertySchema(
+    val type: String,
+    val description: String? = null,
+    val enum: List<String>? = null
+)
+
+data class FunctionCall(
+    val name: String,
+    val args: Map<String, Any?>? = null
+)
+
+data class FunctionResponse(
+    val name: String,
+    val response: Map<String, Any?>
 )
 
 // Response data structures

@@ -49,15 +49,68 @@ sealed class PendingAction {
         val birthPlace: String
     ) : PendingAction()
     data class UpdateTheme(val theme: String) : PendingAction()
-    data class SaveVoiceSuggestion(val type: String, val title: String, val body: String, val extra: String? = null) : PendingAction()
     object ClearChat : PendingAction()
 }
 
-data class VoiceSuggestion(
-    val type: String, // "Note", "Task", "Project"
-    val title: String,
-    val body: String,
-    val extra: String? = null // status for project, etc.
+// Real database actions exposed to Gemini as callable functions. Defined once and shared by
+// every persona's chat turn (KAELEN, VERGIL, MADARA, KAKASHI, BASIM, EZIO, KRATOS, DANTE) — there
+// is no per-persona copy of this registry or the execution path that backs it.
+//
+// To add a new action later (e.g. credit card expense logging, once that feature has a real
+// model/DAO/repository method): add one FunctionDeclaration here, one PendingAction case in
+// performAction(), and one mapping branch in mapFunctionCallToPendingAction(). Nothing else
+// changes, and no persona needs to be touched individually.
+private val chatFunctionDeclarations = listOf(
+    FunctionDeclaration(
+        name = "add_expense",
+        description = "Logs a real expense entry to Harmeet's expense database. Only call this when Harmeet clearly states he spent money on something.",
+        parameters = FunctionParameters(
+            properties = mapOf(
+                "amount" to PropertySchema(type = "NUMBER", description = "The amount spent, in rupees."),
+                "category" to PropertySchema(type = "STRING", description = "A short spending category, e.g. Food, Transport, Shopping."),
+                "note" to PropertySchema(type = "STRING", description = "Optional short note or description of the expense.")
+            ),
+            required = listOf("amount", "category")
+        )
+    ),
+    FunctionDeclaration(
+        name = "add_task",
+        description = "Adds a real task to Harmeet's task list. Only call this when Harmeet clearly asks to add, remember, or track a to-do item.",
+        parameters = FunctionParameters(
+            properties = mapOf(
+                "title" to PropertySchema(type = "STRING", description = "The task title."),
+                "note" to PropertySchema(type = "STRING", description = "Optional additional detail about the task.")
+            ),
+            required = listOf("title")
+        )
+    ),
+    FunctionDeclaration(
+        name = "add_project",
+        description = "Creates a real project tracker entry. Only call this when Harmeet clearly asks to start or track a new project.",
+        parameters = FunctionParameters(
+            properties = mapOf(
+                "name" to PropertySchema(type = "STRING", description = "The project name."),
+                "status" to PropertySchema(
+                    type = "STRING",
+                    description = "The initial project status.",
+                    enum = listOf("Not Started", "In Progress", "On Hold", "Completed")
+                ),
+                "note" to PropertySchema(type = "STRING", description = "Optional additional detail about the project.")
+            ),
+            required = listOf("name", "status")
+        )
+    ),
+    FunctionDeclaration(
+        name = "add_note",
+        description = "Saves a real note to Harmeet's notes cache. Only call this when Harmeet clearly asks to save, remember, or write down a note.",
+        parameters = FunctionParameters(
+            properties = mapOf(
+                "title" to PropertySchema(type = "STRING", description = "The note title."),
+                "content" to PropertySchema(type = "STRING", description = "The note content.")
+            ),
+            required = listOf("title", "content")
+        )
+    )
 )
 
 data class Habit(
@@ -477,224 +530,219 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
     fun requestAction(action: PendingAction) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                when (action) {
-                    is PendingAction.AddExpense -> {
-                        val currentList = expenses.value
-                        val newTotal = currentList.sumOf { it.amount } + action.amount
-                        val goal = monthlyGoal.value
-                        
-                        repository.insertExpense(
-                            Expense(amount = action.amount, category = action.category, note = action.note)
-                        )
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "INSERT",
-                                tableName = "expenses",
-                                description = "Logged expense of ₹${action.amount} under system category '${action.category}'"
-                            )
-                        )
-                        
-                        // Check 80% Alert threshold
-                        if (newTotal >= goal * 0.8 && currentList.sumOf { it.amount } < goal * 0.8) {
-                            sendLocalNotification(
-                                "Budget Warning",
-                                "Harmeet, your spending has reached ${(newTotal / goal * 100).toInt()}% of your monthly goal ($goal)."
-                            )
-                        }
-                    }
-                    is PendingAction.DeleteExpense -> {
-                        repository.deleteExpense(action.expense)
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "DELETE",
-                                tableName = "expenses",
-                                description = "Deleted expense entry: ₹${action.expense.amount} under '${action.expense.category}'"
-                            )
-                        )
-                    }
-                    is PendingAction.AddTask -> {
-                        repository.insertTask(Task(title = action.title, note = action.note))
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "INSERT",
-                                tableName = "tasks",
-                                description = "Created task: '${action.title}'"
-                            )
-                        )
-                    }
-                    is PendingAction.DeleteTask -> {
-                        repository.deleteTask(action.task)
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "DELETE",
-                                tableName = "tasks",
-                                description = "Removed task: '${action.task.title}'"
-                            )
-                        )
-                    }
-                    is PendingAction.ToggleTaskComplete -> {
-                        val updated = action.task.copy(
-                            isCompleted = action.completed,
-                            completedDate = if (action.completed) System.currentTimeMillis() else null
-                        )
-                        repository.insertTask(updated)
-                        val statusText = if (action.completed) "Completed" else "Marked Active"
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "UPDATE",
-                                tableName = "tasks",
-                                description = "$statusText task: '${action.task.title}'"
-                            )
-                        )
-                    }
-                    is PendingAction.AddProject -> {
-                        repository.insertProject(Project(name = action.name, status = action.status, note = action.note))
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "INSERT",
-                                tableName = "projects",
-                                description = "Initiated project tracker: '${action.name}' (Status: ${action.status})"
-                            )
-                        )
-                    }
-                    is PendingAction.UpdateProjectStatus -> {
-                        val updated = action.project.copy(status = action.newStatus)
-                        repository.insertProject(updated)
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "UPDATE",
-                                tableName = "projects",
-                                description = "Transitioned status of '${action.project.name}' to '${action.newStatus}'"
-                            )
-                        )
-                    }
-                    is PendingAction.DeleteProject -> {
-                        repository.deleteProject(action.project)
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "DELETE",
-                                tableName = "projects",
-                                description = "Terminated project tracker: '${action.project.name}'"
-                            )
-                        )
-                    }
-                    is PendingAction.AddNote -> {
-                        repository.insertNote(Note(title = action.title, content = action.content))
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "INSERT",
-                                tableName = "notes",
-                                description = "Saved repository intel note: '${action.title}'"
-                            )
-                        )
-                    }
-                    is PendingAction.DeleteNote -> {
-                        repository.deleteNote(action.note)
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "DELETE",
-                                tableName = "notes",
-                                description = "Purged intel note: '${action.note.title}'"
-                            )
-                        )
-                    }
-                    is PendingAction.UpdateProfileDirectives -> {
-                        repository.updateProfileDirectives(
-                            name = action.name,
-                            role = action.role,
-                            city = action.city,
-                            customGeminiApiKey = action.customGeminiApiKey,
-                            birthDate = action.birthDate,
-                            birthTime = action.birthTime,
-                            birthPlace = action.birthPlace
-                        )
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "UPDATE",
-                                tableName = "user_profile",
-                                description = "Updated profile directives configuration"
-                            )
-                        )
-
-                        // Re-apply briefing schedule using the (unchanged) persisted briefing settings
-                        val context = getApplication<Application>().applicationContext
-                        val current = repository.getUserProfileOneOff()
-                        if (current != null) {
-                            if (current.briefingEnabled) {
-                                com.example.scheduler.BriefingScheduler.scheduleDailyBriefing(
-                                    context,
-                                    current.briefingHour,
-                                    current.briefingMinute
-                                )
-                            } else {
-                                com.example.scheduler.BriefingScheduler.cancelDailyBriefing(context)
-                            }
-                        }
-                    }
-                    is PendingAction.UpdateTheme -> {
-                        repository.updateSelectedTheme(action.theme)
-
-                        // Save Theme variant immediately to DataStore & update global ThemeManager.activeVariant
-                        val context = getApplication<Application>().applicationContext
-                        com.example.data.ThemePreferences.saveTheme(context, action.theme)
-                        val variant = when (action.theme.uppercase()) {
-                            "ARCTIC_FOX", "ARCTIC FOX" -> com.example.ui.theme.AppThemeVariant.ARCTIC_FOX
-                            "CRIMSON_WOLF", "CRIMSON WOLF" -> com.example.ui.theme.AppThemeVariant.CRIMSON_WOLF
-                            "NEXUS" -> com.example.ui.theme.AppThemeVariant.NEXUS
-                            else -> com.example.ui.theme.AppThemeVariant.INFERNO
-                        }
-                        withContext(Dispatchers.Main) {
-                            com.example.ui.theme.ThemeManager.activeVariant.value = variant
-                        }
-
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "UPDATE",
-                                tableName = "user_profile",
-                                description = "Theme variant changed to ${action.theme}"
-                            )
-                        )
-                    }
-                    is PendingAction.SaveVoiceSuggestion -> {
-                        val table = when (action.type.lowercase().trim()) {
-                            "note" -> {
-                                repository.insertNote(Note(title = action.title, content = action.body))
-                                "notes"
-                            }
-                            "task" -> {
-                                repository.insertTask(Task(title = action.title, note = action.body))
-                                "tasks"
-                            }
-                            else -> {
-                                repository.insertProject(Project(name = action.title, status = action.extra ?: "In Progress", note = action.body))
-                                "projects"
-                            }
-                        }
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "INSERT",
-                                tableName = table,
-                                description = "Cataloged voice suggestion [${action.type}] - '${action.title}'"
-                            )
-                        )
-                        _voiceSuggestions.update { list ->
-                            list.filterNot { it.title == action.title && it.body == action.body }
-                        }
-                    }
-                    is PendingAction.ClearChat -> {
-                        repository.clearChatHistory()
-                        repository.insertLog(
-                            DatabaseLog(
-                                action = "DELETE",
-                                tableName = "chat_messages",
-                                description = "Cleared chat intelligence log cache"
-                            )
-                        )
-                        insertDefaultKaelenGreeting()
-                    }
-                }
+                performAction(action)
             } catch (e: Exception) {
                 Log.e("KaelenViewModel", "Error in pending action execution: ${e.message}")
+            }
+        }
+    }
+
+    // Shared execution path: every real database write goes through here, whether triggered by a
+    // direct UI action (via requestAction, fire-and-forget) or a verified chat function call
+    // (via executeFunctionCall, awaited so the caller knows the write actually completed).
+    // Returns a human-readable description of what was actually persisted; throws on failure.
+    private suspend fun performAction(action: PendingAction): String {
+        return when (action) {
+            is PendingAction.AddExpense -> {
+                val currentList = expenses.value
+                val newTotal = currentList.sumOf { it.amount } + action.amount
+                val goal = monthlyGoal.value
+
+                repository.insertExpense(
+                    Expense(amount = action.amount, category = action.category, note = action.note)
+                )
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "INSERT",
+                        tableName = "expenses",
+                        description = "Logged expense of ₹${action.amount} under system category '${action.category}'"
+                    )
+                )
+
+                // Check 80% Alert threshold
+                if (newTotal >= goal * 0.8 && currentList.sumOf { it.amount } < goal * 0.8) {
+                    sendLocalNotification(
+                        "Budget Warning",
+                        "Harmeet, your spending has reached ${(newTotal / goal * 100).toInt()}% of your monthly goal ($goal)."
+                    )
+                }
+                "Logged expense of ₹${action.amount} under category '${action.category}'${if (action.note.isNotBlank()) " (note: ${action.note})" else ""}."
+            }
+            is PendingAction.DeleteExpense -> {
+                repository.deleteExpense(action.expense)
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "DELETE",
+                        tableName = "expenses",
+                        description = "Deleted expense entry: ₹${action.expense.amount} under '${action.expense.category}'"
+                    )
+                )
+                "Deleted expense of ₹${action.expense.amount} under '${action.expense.category}'."
+            }
+            is PendingAction.AddTask -> {
+                repository.insertTask(Task(title = action.title, note = action.note))
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "INSERT",
+                        tableName = "tasks",
+                        description = "Created task: '${action.title}'"
+                    )
+                )
+                "Created task '${action.title}'${if (!action.note.isNullOrBlank()) " (note: ${action.note})" else ""}."
+            }
+            is PendingAction.DeleteTask -> {
+                repository.deleteTask(action.task)
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "DELETE",
+                        tableName = "tasks",
+                        description = "Removed task: '${action.task.title}'"
+                    )
+                )
+                "Removed task '${action.task.title}'."
+            }
+            is PendingAction.ToggleTaskComplete -> {
+                val updated = action.task.copy(
+                    isCompleted = action.completed,
+                    completedDate = if (action.completed) System.currentTimeMillis() else null
+                )
+                repository.insertTask(updated)
+                val statusText = if (action.completed) "Completed" else "Marked Active"
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "UPDATE",
+                        tableName = "tasks",
+                        description = "$statusText task: '${action.task.title}'"
+                    )
+                )
+                "$statusText task '${action.task.title}'."
+            }
+            is PendingAction.AddProject -> {
+                repository.insertProject(Project(name = action.name, status = action.status, note = action.note))
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "INSERT",
+                        tableName = "projects",
+                        description = "Initiated project tracker: '${action.name}' (Status: ${action.status})"
+                    )
+                )
+                "Created project '${action.name}' with status '${action.status}'${if (!action.note.isNullOrBlank()) " (note: ${action.note})" else ""}."
+            }
+            is PendingAction.UpdateProjectStatus -> {
+                val updated = action.project.copy(status = action.newStatus)
+                repository.insertProject(updated)
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "UPDATE",
+                        tableName = "projects",
+                        description = "Transitioned status of '${action.project.name}' to '${action.newStatus}'"
+                    )
+                )
+                "Updated project '${action.project.name}' status to '${action.newStatus}'."
+            }
+            is PendingAction.DeleteProject -> {
+                repository.deleteProject(action.project)
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "DELETE",
+                        tableName = "projects",
+                        description = "Terminated project tracker: '${action.project.name}'"
+                    )
+                )
+                "Deleted project '${action.project.name}'."
+            }
+            is PendingAction.AddNote -> {
+                repository.insertNote(Note(title = action.title, content = action.content))
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "INSERT",
+                        tableName = "notes",
+                        description = "Saved repository intel note: '${action.title}'"
+                    )
+                )
+                "Saved note '${action.title}'."
+            }
+            is PendingAction.DeleteNote -> {
+                repository.deleteNote(action.note)
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "DELETE",
+                        tableName = "notes",
+                        description = "Purged intel note: '${action.note.title}'"
+                    )
+                )
+                "Deleted note '${action.note.title}'."
+            }
+            is PendingAction.UpdateProfileDirectives -> {
+                repository.updateProfileDirectives(
+                    name = action.name,
+                    role = action.role,
+                    city = action.city,
+                    customGeminiApiKey = action.customGeminiApiKey,
+                    birthDate = action.birthDate,
+                    birthTime = action.birthTime,
+                    birthPlace = action.birthPlace
+                )
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "UPDATE",
+                        tableName = "user_profile",
+                        description = "Updated profile directives configuration"
+                    )
+                )
+
+                // Re-apply briefing schedule using the (unchanged) persisted briefing settings
+                val context = getApplication<Application>().applicationContext
+                val current = repository.getUserProfileOneOff()
+                if (current != null) {
+                    if (current.briefingEnabled) {
+                        com.example.scheduler.BriefingScheduler.scheduleDailyBriefing(
+                            context,
+                            current.briefingHour,
+                            current.briefingMinute
+                        )
+                    } else {
+                        com.example.scheduler.BriefingScheduler.cancelDailyBriefing(context)
+                    }
+                }
+                "Updated profile directives."
+            }
+            is PendingAction.UpdateTheme -> {
+                repository.updateSelectedTheme(action.theme)
+
+                // Save Theme variant immediately to DataStore & update global ThemeManager.activeVariant
+                val context = getApplication<Application>().applicationContext
+                com.example.data.ThemePreferences.saveTheme(context, action.theme)
+                val variant = when (action.theme.uppercase()) {
+                    "ARCTIC_FOX", "ARCTIC FOX" -> com.example.ui.theme.AppThemeVariant.ARCTIC_FOX
+                    "CRIMSON_WOLF", "CRIMSON WOLF" -> com.example.ui.theme.AppThemeVariant.CRIMSON_WOLF
+                    "NEXUS" -> com.example.ui.theme.AppThemeVariant.NEXUS
+                    else -> com.example.ui.theme.AppThemeVariant.INFERNO
+                }
+                withContext(Dispatchers.Main) {
+                    com.example.ui.theme.ThemeManager.activeVariant.value = variant
+                }
+
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "UPDATE",
+                        tableName = "user_profile",
+                        description = "Theme variant changed to ${action.theme}"
+                    )
+                )
+                "Theme changed to ${action.theme}."
+            }
+            is PendingAction.ClearChat -> {
+                repository.clearChatHistory()
+                repository.insertLog(
+                    DatabaseLog(
+                        action = "DELETE",
+                        tableName = "chat_messages",
+                        description = "Cleared chat intelligence log cache"
+                    )
+                )
+                insertDefaultKaelenGreeting()
+                "Cleared chat history."
             }
         }
     }
@@ -1060,6 +1108,127 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         _selectedImageBase64.value = null
     }
 
+    // Drives the function-calling round trip for a single chat turn, shared by every persona.
+    // Sends the request; if Gemini responds with one or more function calls, executes each one
+    // for real via executeFunctionCall (which goes through performAction), then feeds the verified
+    // results back to Gemini so its final reply is grounded in what actually happened. Bounded to
+    // a few rounds purely as a runaway-safety net against unexpected repeated tool use.
+    private suspend fun runChatTurnWithToolCalling(initialRequest: GenerateContentRequest, apiKey: String): String {
+        var contents = initialRequest.contents
+        val executedResults = mutableListOf<FunctionResponse>()
+        val maxRounds = 4
+
+        repeat(maxRounds) {
+            val response = RetrofitClient.service.generateContent(apiKey, initialRequest.copy(contents = contents))
+            val parts = response.candidates?.firstOrNull()?.content?.parts.orEmpty()
+            val functionCalls = parts.mapNotNull { it.functionCall }
+
+            if (functionCalls.isEmpty()) {
+                val text = parts.firstOrNull { it.text != null }?.text
+                return text ?: if (executedResults.isNotEmpty()) {
+                    synthesizeReplyFromResults(executedResults)
+                } else {
+                    "Harmeet, my core processing returned an empty transmission. Please query me again."
+                }
+            }
+
+            val functionResponses = functionCalls.map { call -> executeFunctionCall(call) }
+            executedResults.addAll(functionResponses)
+
+            contents = contents +
+                Content(role = "model", parts = parts) +
+                Content(role = "function", parts = functionResponses.map { Part(functionResponse = it) })
+        }
+
+        // Exhausted the round cap without a final text reply from the model — never guess at a
+        // confirmation here; report exactly what the verified function results said.
+        return synthesizeReplyFromResults(executedResults)
+    }
+
+    // Executes one Gemini function call for real and reports back only what actually happened.
+    // This is the single chokepoint between "the model wants to do X" and "X was actually written
+    // to the database" — performAction() either succeeds (and we report its real description) or
+    // throws (and we report the real error), so a success is never claimed without verification.
+    private suspend fun executeFunctionCall(call: FunctionCall): FunctionResponse {
+        val action = mapFunctionCallToPendingAction(call)
+        if (action == null) {
+            return FunctionResponse(
+                name = call.name,
+                response = mapOf(
+                    "status" to "error",
+                    "message" to "Unrecognized action or missing/invalid required arguments for '${call.name}'."
+                )
+            )
+        }
+        return try {
+            val details = performAction(action)
+            FunctionResponse(name = call.name, response = mapOf("status" to "success", "details" to details))
+        } catch (e: Exception) {
+            Log.e("KaelenViewModel", "Chat function call failed: ${call.name}", e)
+            FunctionResponse(
+                name = call.name,
+                response = mapOf(
+                    "status" to "error",
+                    "message" to (e.localizedMessage ?: "The database write failed for an unknown reason.")
+                )
+            )
+        }
+    }
+
+    // Validates and converts a Gemini function call into the corresponding PendingAction. Returns
+    // null on an unknown function name or missing/malformed required arguments, so a malformed
+    // call is reported as an error rather than silently performing a wrong or partial write.
+    private fun mapFunctionCallToPendingAction(call: FunctionCall): PendingAction? {
+        val args = call.args.orEmpty()
+
+        fun str(key: String): String? = (args[key] as? String)?.trim()
+        fun num(key: String): Double? = when (val v = args[key]) {
+            is Number -> v.toDouble()
+            is String -> v.toDoubleOrNull()
+            else -> null
+        }
+
+        return when (call.name) {
+            "add_expense" -> {
+                val amount = num("amount")?.takeIf { it > 0 } ?: return null
+                val category = str("category")?.takeIf { it.isNotEmpty() } ?: return null
+                PendingAction.AddExpense(amount = amount, category = category, note = str("note") ?: "")
+            }
+            "add_task" -> {
+                val title = str("title")?.takeIf { it.isNotEmpty() } ?: return null
+                PendingAction.AddTask(title = title, note = str("note")?.ifBlank { null })
+            }
+            "add_project" -> {
+                val name = str("name")?.takeIf { it.isNotEmpty() } ?: return null
+                val status = str("status")?.takeIf { it.isNotEmpty() } ?: "Not Started"
+                PendingAction.AddProject(name = name, status = status, note = str("note")?.ifBlank { null })
+            }
+            "add_note" -> {
+                val title = str("title")?.takeIf { it.isNotEmpty() } ?: return null
+                val content = str("content")?.takeIf { it.isNotEmpty() } ?: return null
+                PendingAction.AddNote(title = title, content = content)
+            }
+            else -> null
+        }
+    }
+
+    // Last-resort reply built directly from verified function results, used only if the model
+    // exhausts the tool-calling round cap without producing its own wrap-up text. Never invents
+    // anything beyond what the real results contain.
+    private fun synthesizeReplyFromResults(results: List<FunctionResponse>): String {
+        if (results.isEmpty()) {
+            return "Harmeet, my core processing returned an empty transmission. Please query me again."
+        }
+        return results.joinToString("\n") { fr ->
+            val status = fr.response["status"] as? String
+            if (status == "success") {
+                "✔ ${fr.response["details"] as? String ?: "Action completed."}"
+            } else {
+                "✘ Action '${fr.name}' failed: ${fr.response["message"] as? String ?: "Unknown error."}"
+            }
+        }
+    }
+
     // Send chat directly to Gemini API holding history + database status
     fun sendChatMessage() {
         val messageText = _chatInputText.value.trim()
@@ -1156,8 +1325,15 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                     [Manual Notes Cache]
                     $notesSummary
 
-                    Never mention the existence of database schemas or JSON codes directly unless Harmeet asks. Just utilize this raw database state to serve Harmeet instantly and seamlessly. 
+                    Never mention the existence of database schemas or JSON codes directly unless Harmeet asks. Just utilize this raw database state to serve Harmeet instantly and seamlessly.
                     Respond in natural markdown. Prioritize addressing the user's explicit query first.
+
+                    INTEGRITY PROTOCOL (applies to every persona, no exceptions):
+                    You have real functions available (add_expense, add_task, add_project, add_note) that perform actual database writes when called.
+                    - Only state that something was saved, logged, updated, synced, or deleted AFTER the corresponding function call has actually returned a success result in this turn.
+                    - If a function call returns an error, relay that plainly to Harmeet in your own words. Never invent a technical explanation (no "sync lag," "transaction rollback," "bypassed the queue," "force-committed," or similar) unless it is literally present in the function's error message.
+                    - Never fabricate specific numbers, dates, statuses, or confirmations that are not backed by a real function result or the workspace data already provided above.
+                    - If you are not sure whether something succeeded, say so plainly instead of projecting confidence.
                 """.trimIndent()
 
                 // 4. Assemble contents representing history (last 10 messages for speed / latency constraints)
@@ -1179,25 +1355,28 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 val request = GenerateContentRequest(
                     contents = listPartContent,
                     systemInstruction = Content(parts = listOf(Part(text = systemPrompt))),
-                    tools = listOf(mapOf("googleSearch" to emptyMap())),
+                    tools = listOf(
+                        Tool(googleSearch = emptyMap()),
+                        Tool(functionDeclarations = chatFunctionDeclarations)
+                    ),
                     generationConfig = GenerationConfig(temperature = 0.7f)
                 )
 
                 // Clear the selected image
                 clearSelectedImage()
 
-                // 5. Call API
+                // 5. Call API. Real tool-calling: the model may request a real database write via
+                // a function call. We execute it for real and feed the verified result back before
+                // the model is allowed to compose its final reply (see runChatTurnWithToolCalling).
                 val customKey = profile.customGeminiApiKey
                 val apiKey = if (customKey.trim().isNotEmpty()) customKey.trim() else BuildConfig.GEMINI_API_KEY
                 var replyText = ""
-                
+
                 if (apiKey.trim().isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
                     replyText = "Harmeet, I am currently disconnected from my neural core. Please securely register your Google Gemini API key in the settings tab, and I will be fully online instantly."
                 } else {
                     try {
-                        val response = RetrofitClient.service.generateContent(apiKey, request)
-                        replyText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text 
-                            ?: "Harmeet, my core processing returned an empty transmission. Please query me again."
+                        replyText = runChatTurnWithToolCalling(request, apiKey)
                     } catch (apiError: Exception) {
                         Log.e("KaelenViewModel", "Gemini API Connection failed", apiError)
                         try {
@@ -1230,129 +1409,6 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
-    }
-
-    // Voice Capture Feature State
-    private val _voiceState = MutableStateFlow("IDLE") // IDLE, LISTENING, PROCESSING, CONVERSATION_SUGGESTED
-    val voiceState: StateFlow<String> = _voiceState.asStateFlow()
-
-    private val _voiceTranscript = MutableStateFlow("")
-    val voiceTranscript: StateFlow<String> = _voiceTranscript.asStateFlow()
-
-    private val _voiceSuggestions = MutableStateFlow<List<VoiceSuggestion>>(emptyList())
-    val voiceSuggestions: StateFlow<List<VoiceSuggestion>> = _voiceSuggestions.asStateFlow()
-
-    fun updateVoiceTranscript(text: String) {
-        _voiceTranscript.value = text
-    }
-
-    fun startVoiceListening() {
-        _voiceState.value = "LISTENING"
-    }
-
-    fun stopVoiceAndAnalyze(typedInput: String? = null) {
-        val textToAnalyze = typedInput ?: _voiceTranscript.value
-        if (textToAnalyze.trim().isEmpty()) {
-            _voiceState.value = "IDLE"
-            return
-        }
-
-        _voiceTranscript.value = textToAnalyze
-        _voiceState.value = "PROCESSING"
-
-        viewModelScope.launch(Dispatchers.IO) {
-            val profile = userProfile.value
-            val customKey = profile.customGeminiApiKey
-            val apiKey = if (customKey.trim().isNotEmpty()) customKey.trim() else BuildConfig.GEMINI_API_KEY
-            if (apiKey.trim().isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-                simulateVoiceCategorization(textToAnalyze)
-                return@launch
-            }
-
-            val schemaPrompt = """
-                You are a smart organizational parsing assistant.
-                Analyze the conversation transcript, and determine which items should go into:
-                1. NOTES: Shared facts, manuals, or documents that don't need checklist tasks or projects.
-                2. TASKS: Single checklist check-off items.
-                3. PROJECTS: Complex long-running goals that have a title, a status ("Not Started", "In Progress", "On Hold", "Completed"), and details.
-
-                You MUST return a JSON object with this exact schema:
-                {
-                   "suggestions": [
-                      {
-                         "type": "Note" or "Task" or "Project",
-                         "title": "Title or short name",
-                         "body": "Detailed content, note, or description",
-                         "extra": "If Project, specify one of [Not Started, In Progress, On Hold, Completed]. Else null"
-                      }
-                   ]
-                }
-                Return ONLY valid JSON. Absolutely no explanations, no markdown tags. Just pure JSON.
-                Transcript: "$textToAnalyze"
-            """.trimIndent()
-
-            val request = GenerateContentRequest(
-                contents = listOf(Content(parts = listOf(Part(text = schemaPrompt)))),
-                generationConfig = GenerationConfig(temperature = 0.2f),
-                systemInstruction = Content(parts = listOf(Part(text = "You are a precise JSON compiler.")))
-            )
-
-            try {
-                val response = RetrofitClient.service.generateContent(apiKey, request)
-                val jsonString = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: ""
-                
-                val cleanJson = jsonString.replace("```json", "").replace("```", "").trim()
-                val root = JSONObject(cleanJson)
-                val array = root.getJSONArray("suggestions")
-                val suggestionsList = mutableListOf<VoiceSuggestion>()
-                for (i in 0 until array.length()) {
-                    val obj = array.getJSONObject(i)
-                    suggestionsList.add(
-                        VoiceSuggestion(
-                            type = obj.getString("type"),
-                            title = obj.getString("title"),
-                            body = obj.getString("body"),
-                            extra = if (obj.has("extra") && !obj.isNull("extra")) obj.getString("extra") else null
-                        )
-                    )
-                }
-
-                withContext(Dispatchers.Main) {
-                    _voiceSuggestions.value = suggestionsList
-                    _voiceState.value = "SUGGESTION_READY"
-                }
-
-            } catch (e: Exception) {
-                Log.e("KaelenViewModel", "Error parsing voice transcribing", e)
-                simulateVoiceCategorization(textToAnalyze)
-            }
-        }
-    }
-
-    private fun simulateVoiceCategorization(rawText: String) {
-        viewModelScope.launch(Dispatchers.Default) {
-            val lower = rawText.lowercase()
-            val suggestions = mutableListOf<VoiceSuggestion>()
-
-            if (lower.contains("project") || lower.contains("launch") || lower.contains("build")) {
-                suggestions.add(VoiceSuggestion("Project", "Quantum Launch Core", "Manage core launch timelines highlighted in discussions.", "In Progress"))
-            }
-            if (lower.contains("task") || lower.contains("todo") || lower.contains("call") || lower.contains("buy") || lower.contains("check")) {
-                suggestions.add(VoiceSuggestion("Task", "Check QA Bug Backlog", "Review the checklist matching current logs.", null))
-            }
-            suggestions.add(VoiceSuggestion("Note", "Voice Conversation Note", rawText, null))
-
-            withContext(Dispatchers.Main) {
-                _voiceSuggestions.value = suggestions
-                _voiceState.value = "SUGGESTION_READY"
-            }
-        }
-    }
-
-    fun dismissVoiceSuggestions() {
-        _voiceSuggestions.value = emptyList()
-        _voiceState.value = "IDLE"
-        _voiceTranscript.value = ""
     }
 
     // Chat Voice Input States
