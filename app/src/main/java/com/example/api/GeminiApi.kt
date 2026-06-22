@@ -112,4 +112,9 @@ object RetrofitClient {
             .build()
         retrofit.create(GeminiApiService::class.java)
     }
+
+    // Serializes a request with the exact same Moshi config used for the real network call, so
+    // logging this is a faithful preview of the JSON body Retrofit actually sends to Gemini.
+    fun toJson(request: GenerateContentRequest): String =
+        moshi.adapter(GenerateContentRequest::class.java).toJson(request)
 }

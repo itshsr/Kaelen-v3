@@ -1118,8 +1118,10 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
         val executedResults = mutableListOf<FunctionResponse>()
         val maxRounds = 4
 
-        repeat(maxRounds) {
-            val response = RetrofitClient.service.generateContent(apiKey, initialRequest.copy(contents = contents))
+        repeat(maxRounds) { round ->
+            val roundRequest = initialRequest.copy(contents = contents)
+            Log.d("KaelenGeminiRequest", "Round $round request JSON: ${RetrofitClient.toJson(roundRequest)}")
+            val response = RetrofitClient.service.generateContent(apiKey, roundRequest)
             val parts = response.candidates?.firstOrNull()?.content?.parts.orEmpty()
             val functionCalls = parts.mapNotNull { it.functionCall }
 
@@ -1351,14 +1353,15 @@ class KaelenViewModel(application: Application) : AndroidViewModel(application) 
                 currentQueryParts.add(Part(text = "user: $messageText"))
                 listPartContent.add(Content(parts = currentQueryParts))
 
-                // Build request
+                // Build request. Gemini's API does not reliably support combining the googleSearch
+                // grounding tool with custom functionDeclarations in the same request — many model
+                // versions reject that combination outright. Since real database function calling
+                // is now needed on every turn, googleSearch grounding is dropped here rather than
+                // risk every chat message failing tool validation.
                 val request = GenerateContentRequest(
                     contents = listPartContent,
                     systemInstruction = Content(parts = listOf(Part(text = systemPrompt))),
-                    tools = listOf(
-                        Tool(googleSearch = emptyMap()),
-                        Tool(functionDeclarations = chatFunctionDeclarations)
-                    ),
+                    tools = listOf(Tool(functionDeclarations = chatFunctionDeclarations)),
                     generationConfig = GenerationConfig(temperature = 0.7f)
                 )
 
